@@ -60,14 +60,18 @@ export function buildAgentTurns(
   for (const part of parts) {
     if (part.type !== "data-agent-output") continue;
     const d = part.data as AgentOutputData | undefined;
-    if (!d?.agentId || !d.output) continue;
+    if (!d?.agentId) continue;
+    const output =
+      typeof d.output === "string" && d.output.trim().length > 0
+        ? d.output
+        : "_(sortie vide — l'agent n'a produit aucun texte)_";
     turns.push({
       key: `${d.agentId}-r${d.round ?? 0}`,
       agentId: d.agentId,
       role: d.role ?? "default-chat",
       label: d.label ?? "Agent",
       round: d.round,
-      output: d.output,
+      output,
       streaming: false,
     });
   }

@@ -33,6 +33,11 @@ describe("buildCitationGate", () => {
     expect(gate.validatedIds.has("LEGIARTI000000000008")).toBe(false);
   });
 
+  it("reste inactif si le citateur a tourné sans produire de texte", () => {
+    const gate = buildCitationGate([{ role: "citator", output: "   " }]);
+    expect(gate.active).toBe(false);
+  });
+
   it("refuse une version INDISPONIBLE même si le status est VALIDATED", () => {
     const gate = buildCitationGate([
       {

@@ -6,18 +6,18 @@ import {
 } from "./roles";
 
 describe("chaîne Légifrance → @@CITE", () => {
-  it("la recherche exige get_article et des extraits littéraux", () => {
-    expect(RESEARCH_SYSTEM_PROMPT).toContain("Textes officiels (get_article)");
+  it("la recherche exige get_article sans inventer de sources", () => {
     expect(RESEARCH_SYSTEM_PROMPT).toContain("legifrance_get_article");
-    expect(RESEARCH_SYSTEM_PROMPT).toMatch(/3 à 5 articles/);
-    expect(RESEARCH_SYSTEM_PROMPT).toContain("en parallèle");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("N'invente ni décret");
   });
 
-  it("le citateur doit enchaîner get → verify et interdire l'APPROUVÉ vide", () => {
+  it("le citateur vérifie les citations de la Recherche et n'approuve pas à vide", () => {
     expect(CITATOR_SYSTEM_PROMPT).toContain("legifrance_verify_quote");
-    expect(CITATOR_SYSTEM_PROMPT).toContain("claimed_quote = CET extrait officiel");
-    expect(CITATOR_SYSTEM_PROMPT).toContain("Interdit : « Aucune citation à vérifier »");
-    expect(CITATOR_SYSTEM_PROMPT).toMatch(/3 à 5 articles/);
+    expect(CITATOR_SYSTEM_PROMPT).toContain("@@CITE");
+    expect(CITATOR_SYSTEM_PROMPT).toContain("RÉVISION NÉCESSAIRE");
+    expect(CITATOR_SYSTEM_PROMPT).toContain(
+      "Ne choisis pas toi-même une liste d'articles à valider"
+    );
     expect(AGENT_DEFAULTS.citator?.toolAllowlist).toContain(
       "legifrance_verify_quote"
     );

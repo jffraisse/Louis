@@ -74,6 +74,12 @@ export function buildCitationGate(
     return { active: false, validatedNums: new Set(), validatedIds: new Set() };
   }
 
+  // Sortie vide : l'agent n'a rien produit — ne pas activer le filtre.
+  // Texte sans @@CITE : filtre actif à allowlist vide (fail-closed).
+  if (!citator.some((output) => output.output.trim().length > 0)) {
+    return { active: false, validatedNums: new Set(), validatedIds: new Set() };
+  }
+
   const validatedNums = new Set<string>();
   const validatedIds = new Set<string>();
   for (const output of citator) {

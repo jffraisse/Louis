@@ -1,4 +1,5 @@
 import { loadConnectorCredentials } from "./runtime";
+import { mapSearchRow, searchTypeForQuery, type SearchRow } from "./legifrance-map";
 import {
   httpReason,
   runTool,
@@ -8,7 +9,7 @@ import {
 } from "@/lib/tools/result";
 
 const OAUTH_URL = "https://oauth.piste.gouv.fr/api/oauth/token";
-const LEGIFRANCE_PATH = "/dila/legifrance/lf-engine-app";
+export const LEGIFRANCE_PATH = "/dila/legifrance/lf-engine-app";
 const TIMEOUT_MS = 15_000;
 
 /**
@@ -152,6 +153,8 @@ export async function pisteFetch<T>(
 
 export type LegifranceHit = {
   id: string;
+  articleId: string | null;
+  textId: string | null;
   title: string;
   url: string;
   excerpt?: string;
@@ -163,14 +166,7 @@ export async function legifranceSearch(
   fond: "ALL" | "CODE_DATE" | "JURI" = "ALL"
 ): Promise<ToolResult<{ query: string; hits: LegifranceHit[] }>> {
   return runTool(async () => {
-    type Raw = {
-      results?: Array<{
-        id?: string;
-        titles?: Array<{ title?: string; cid?: string }>;
-        sections?: Array<{ extracts?: Array<{ values?: string[] }> }>;
-        texte?: string;
-      }>;
-    };
+    type Raw = { results?: SearchRow[] };
 
     const searchBody = {
       fond,
@@ -180,13 +176,13 @@ export async function legifranceSearch(
             typeChamp: "ALL",
             operateur: "ET",
             criteres: [
-              { valeur: query, operateur: "ET", typeRecherche: "UN_DES_MOTS" },
+              { valeur: query, operateur: "ET", typeRecherche: searchTypeForQuery(query) },
             ],
           },
         ],
         filtres: [],
         pageNumber: 1,
-        pageSize: 5,
+        pageSize: 8,
         operateur: "ET",
         sort: "PERTINENCE",
         typePagination: "DEFAUT",
@@ -199,20 +195,16 @@ export async function legifranceSearch(
     if (!r.ok) return r;
 
     const hits: LegifranceHit[] = (r.data.results ?? [])
-      .slice(0, 5)
+      .slice(0, 8)
       .map((row) => {
-        const id = row.id ?? row.titles?.[0]?.cid ?? "";
-        const title =
-          row.titles?.[0]?.title ?? id ?? "Résultat sans titre";
-        const excerpt =
-          row.texte ??
-          row.sections?.[0]?.extracts?.[0]?.values?.[0] ??
-          undefined;
+        const mapped = mapSearchRow(row);
         return {
-          id,
-          title,
-          url: legifranceUrlForId(id),
-          excerpt: excerpt?.slice(0, 280),
+          id: mapped.id,
+          articleId: mapped.articleId,
+          textId: mapped.textId,
+          title: mapped.title,
+          url: legifranceUrlForId(mapped.id),
+          excerpt: mapped.excerpt ?? undefined,
         };
       });
 

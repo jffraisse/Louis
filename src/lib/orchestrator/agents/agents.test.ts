@@ -20,15 +20,22 @@ describe("AGENT_DEFAULTS: table des rôles spécialisés", () => {
     expect(AGENT_DEFAULTS.research?.systemPrompt).toBe(RESEARCH_SYSTEM_PROMPT);
     expect(AGENT_DEFAULTS.research?.toolAllowlist).toEqual([
       "legifrance_search",
+      "legifrance_get_article",
       "pappers_search",
       "pappers_get",
       "search_documents",
     ]);
   });
 
-  it("citator : un seul outil de vérification", () => {
+  it("citator : search, get_article et verify_quote", () => {
     expect(AGENT_DEFAULTS.citator?.systemPrompt).toBe(CITATOR_SYSTEM_PROMPT);
-    expect(AGENT_DEFAULTS.citator?.toolAllowlist).toEqual(["legifrance_search"]);
+    expect(AGENT_DEFAULTS.citator?.toolAllowlist).toEqual([
+      "legifrance_search",
+      "legifrance_get_article",
+      "legifrance_verify_quote",
+      "judilibre_search",
+      "judilibre_decision",
+    ]);
   });
 
   it("reviewer : aucun outil (analyse de texte pure)", () => {
@@ -52,7 +59,10 @@ describe("AGENT_DEFAULTS: table des rôles spécialisés", () => {
     expect(AGENT_DEFAULTS.legifrance?.systemPrompt).toBe(
       LEGIFRANCE_SYSTEM_PROMPT
     );
-    expect(AGENT_DEFAULTS.legifrance?.toolAllowlist).toEqual(["legifrance_search"]);
+    expect(AGENT_DEFAULTS.legifrance?.toolAllowlist).toEqual([
+      "legifrance_search",
+      "legifrance_get_article",
+    ]);
   });
 });
 

@@ -210,6 +210,19 @@ export async function legifranceGetArticle(
   });
 }
 
+type QuoteCheck = {
+  status: QuoteVerdict;
+  article_id: string | null;
+  num: string | null;
+  etat: string | null;
+  date_debut: string | null;
+  url: string | null;
+  official_excerpt: string | null;
+  version: ArticleVersion;
+  as_of: string | null;
+  note: string;
+};
+
 export async function legifranceVerifyQuote(
   userId: string,
   opts: {
@@ -219,21 +232,8 @@ export async function legifranceVerifyQuote(
     expected_num?: string;
     asOf?: string;
   }
-): Promise<
-  ToolResult<{
-    status: QuoteVerdict;
-    article_id: string | null;
-    num: string | null;
-    etat: string | null;
-    date_debut: string | null;
-    url: string | null;
-    official_excerpt: string | null;
-    version: ArticleVersion;
-    as_of: string | null;
-    note: string;
-  }>
-> {
-  return runTool(async () => {
+): Promise<ToolResult<QuoteCheck>> {
+  return runTool<QuoteCheck>(async () => {
     const expected =
       opts.expected_num?.trim() ||
       (opts.query ? wantedArticleNum(opts.query) : null);

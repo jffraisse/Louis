@@ -59,11 +59,17 @@ describe("Presets: cohérence avec la table d'agents", () => {
 });
 
 describe("Presets: allowlist d'outils", () => {
-  it("le citateur dans recherche-juridique limite ses outils à legifrance_search", () => {
+  it("le citateur dans recherche-juridique vérifie par get_article et verify_quote", () => {
     const preset = findPreset("recherche-juridique")!;
     const citator = preset.agents.find((a) => a.role === "citator");
     expect(citator).toBeDefined();
-    expect(citator!.toolAllowlist).toEqual(["legifrance_search"]);
+    expect(citator!.toolAllowlist).toEqual([
+      "legifrance_search",
+      "legifrance_get_article",
+      "legifrance_verify_quote",
+      "judilibre_search",
+      "judilibre_decision",
+    ]);
   });
 
   it("Reviewer dans redaction-actes n'a aucun outil", () => {

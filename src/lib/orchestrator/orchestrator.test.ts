@@ -192,6 +192,73 @@ describe("Orchestrator: priorOutputs", () => {
     expect(observed.get("maestro")?.priorOutputs?.[1].agentId).toBe("cit");
   });
 
+  it("retire du texte final un article que le citateur n'a pas VALIDATED", async () => {
+    const pipeline = makePipeline([
+      makeAgentDef("rech", "research", "Recherche"),
+      makeAgentDef("cit", "citator", "Citateur"),
+      makeAgentDef("maestro", "orchestrator", "Maestro"),
+    ]);
+    const orchestrator = new Orchestrator(pipeline);
+    const { writer, parts } = makeWriter();
+    const citatorRow =
+      "@@CITE status=VALIDATED id=LEGIARTI000032040772 num=1104 version=APPLICABLE@@";
+
+    await orchestrator.run({
+      ctx: makeCtx(),
+      writer,
+      agentFactory: (def) =>
+        new FakeAgent(
+          def,
+          def.role === "citator"
+            ? citatorRow
+            : "L'article 1104 s'applique. L'article 1108 aussi."
+        ),
+    });
+
+    const deltas = parts
+      .filter(
+        (part): part is { type: string; delta: string } =>
+          !!part &&
+          typeof part === "object" &&
+          (part as { type?: string }).type === "text-delta"
+      )
+      .map((part) => part.delta)
+      .join("");
+    expect(deltas).toContain("article 1104");
+    expect(deltas).not.toContain("1108");
+    expect(deltas).toContain("« non vérifié »");
+  });
+
+  it("ne montre au citateur que la recherche, pas le rédacteur", async () => {
+    const pipeline = makePipeline([
+      makeAgentDef("rech", "research", "Recherche"),
+      makeAgentDef("red", "drafting", "Rédacteur"),
+      makeAgentDef("cit", "citator", "Citateur"),
+      makeAgentDef("maestro", "orchestrator", "Maestro"),
+    ]);
+    const orchestrator = new Orchestrator(pipeline);
+    const { writer } = makeWriter();
+    const observed = new Map<string, AgentContext>();
+
+    await orchestrator.run({
+      ctx: makeCtx(),
+      writer,
+      agentFactory: (def) =>
+        new FakeAgent(def, `out-${def.id}`, (ctx) =>
+          observed.set(def.id, structuredClone(ctx))
+        ),
+    });
+
+    expect(observed.get("cit")?.priorOutputs?.map((item) => item.role)).toEqual([
+      "research",
+    ]);
+    expect(observed.get("maestro")?.priorOutputs?.map((item) => item.role)).toEqual([
+      "research",
+      "drafting",
+      "citator",
+    ]);
+  });
+
   it("préserve les priorOutputs initiaux fournis par le caller", async () => {
     const pipeline = makePipeline([makeAgentDef("only")]);
     const orchestrator = new Orchestrator(pipeline);

@@ -34,7 +34,7 @@ Même règle pour edit_document, search_documents, legifrance_search, pappers_se
 
 CHOIX DE L'OUTIL — n'appelle un outil que s'il t'est EFFECTIVEMENT proposé ce tour (la liste dépend des connecteurs actifs de l'utilisateur). Si l'outil nécessaire n'est pas disponible, dis-le franchement plutôt que d'inventer un appel ou un résultat.
 - Question portant sur le contenu d'un document de l'utilisateur → search_documents (recherche sémantique large) ou read_document / find_in_document (texte exact d'un document identifié) AVANT de répondre. Ne réponds pas de mémoire sur un document que tu peux lire.
-- Toute règle de droit, article ou décision que tu t'apprêtes à citer → vérifie-la d'abord via legifrance_search, puis reporte la référence ET l'URL Légifrance renvoyées. Ne cite JAMAIS un article ou un arrêt de ta seule mémoire.
+- Toute règle de droit, article ou décision que tu t'apprêtes à citer → appelle legifrance_get_article puis legifrance_verify_quote, et ne cite que si status=VALIDATED, avec l'URL de l'article. Une date (« 21 juin 2004 », « 15/01/2025 ») n'est pas un numéro d'article. Si la question est datée, passe as_of=YYYY-MM-DD. Si l'outil répond INDISPONIBLE, ne cite pas l'édition voisine. Ne cite JAMAIS un article ou un arrêt de ta seule mémoire.
 - Entreprise ou dirigeant français → pappers_search / pappers_get.
 Après un appel d'outil, fonde ta réponse sur ce qu'il a réellement renvoyé et cite la source ; s'il ne renvoie rien d'utile, dis-le et n'invente pas.
 

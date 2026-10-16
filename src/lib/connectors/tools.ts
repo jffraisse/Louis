@@ -2,6 +2,7 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { pappersSearch, pappersGet } from "./pappers";
 import { legifranceSearch } from "./piste";
+import { legifranceGetArticle, legifranceVerifyQuote } from "./legifrance-article";
 import { judilibreSearch, judilibreGetDecision } from "./judilibre";
 import { bodaccSearch } from "./bodacc";
 import { bofipSearch } from "./bofip";
@@ -212,6 +213,44 @@ export async function buildToolsForUser(
       }),
       execute: async ({ query, fond }) =>
         legifranceSearch(userId, query, fond ?? "ALL"),
+    });
+
+    tools.legifrance_get_article = tool({
+      description:
+        "Texte intégral d'un article Légifrance (POST /consult/getArticle). Passer id=LEGIARTI… ou query=« 1104 Code civil ». as_of=YYYY-MM-DD pour la version applicable ce jour : INDISPONIBLE s'il n'y en a pas, sans édition voisine. Refus d'un LEGITEXT (code entier). Obligatoire avant d'affirmer le contenu d'un article.",
+      inputSchema: z.object({
+        id: z.string().optional().describe("Identifiant LEGIARTI renvoyé par legifrance_search (champ articleId)."),
+        query: z.string().optional().describe("Ex. « 1231-5 Code civil » si l'id n'est pas connu."),
+        as_of: z
+          .string()
+          .optional()
+          .describe("Date YYYY-MM-DD. Version applicable ce jour, ou INDISPONIBLE si aucune (pas d'édition voisine)."),
+      }),
+      execute: async ({ id, query, as_of }) =>
+        legifranceGetArticle(userId, { id, query, asOf: as_of }),
+    });
+
+    tools.legifrance_verify_quote = tool({
+      description:
+        "Vérifie PROGRAMMATIQUEMENT qu'une citation figure dans le texte officiel. status = VALIDATED | REJECTED | INTROUVABLE. Un REJECTED ou INDISPONIBLE interdit d'approuver la citation. Compare aussi expected_num au numéro officiel. as_of=YYYY-MM-DD pour une version datée.",
+      inputSchema: z.object({
+        claimed_quote: z.string().min(24).describe("Extrait affirmé, mot pour mot."),
+        article_id: z.string().optional().describe("LEGIARTI si déjà connu."),
+        query: z.string().optional().describe("Ex. « 1104 Code civil »."),
+        expected_num: z.string().optional().describe("Numéro attendu, ex. 1104 ou L442-1."),
+        as_of: z
+          .string()
+          .optional()
+          .describe("Date YYYY-MM-DD, la même que pour get_article. INDISPONIBLE si aucune version ce jour."),
+      }),
+      execute: async ({ claimed_quote, article_id, query, expected_num, as_of }) =>
+        legifranceVerifyQuote(userId, {
+          claimed_quote,
+          article_id,
+          query,
+          expected_num,
+          asOf: as_of,
+        }),
     });
 
     tools.judilibre_search = tool({

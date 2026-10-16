@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { AGENT_DEFAULTS, runAgentStream, runDefaultAgent } from "./agents";
+import { applyCitationGate, buildCitationGate, priorForCitator } from "./citation-gate";
 import { withRetry } from "./retry";
 import {
   DEFAULT_ITERATIVE_ROUNDS,
@@ -114,7 +115,7 @@ export class Orchestrator {
           const result = await agent.run({
             ...ctx,
             pipelineRunId,
-            priorOutputs,
+            priorOutputs: priorForCitator(def.role, priorOutputs),
           });
           await this.streamFinal({
             args,
@@ -122,6 +123,7 @@ export class Orchestrator {
             pipelineRunId,
             result,
             startedAt,
+            priorOutputs,
           });
         } else {
           // Intermédiaire : retry exponentiel sur erreurs transitoires.
@@ -133,7 +135,7 @@ export class Orchestrator {
               const result = await agent.run({
                 ...ctx,
                 pipelineRunId,
-                priorOutputs,
+                priorOutputs: priorForCitator(def.role, priorOutputs),
               });
               return this.consumeIntermediate({
                 args,
@@ -215,7 +217,7 @@ export class Orchestrator {
               const result = await agent.run({
                 ...ctx,
                 pipelineRunId,
-                priorOutputs: snapshotForRound,
+                priorOutputs: priorForCitator(def.role, snapshotForRound),
                 systemPromptExtras: this.councilTurnInstructions(
                   ctx.systemPromptExtras,
                   round,
@@ -321,7 +323,7 @@ export class Orchestrator {
       const result = await agent.run({
         ...ctx,
         pipelineRunId,
-        priorOutputs,
+        priorOutputs: priorForCitator(synthesizer.role, priorOutputs),
         systemPromptExtras: this.councilSynthesisInstructions(
           ctx.systemPromptExtras,
           rounds,
@@ -334,6 +336,7 @@ export class Orchestrator {
         pipelineRunId,
         result,
         startedAt,
+        priorOutputs,
       });
     } catch (err) {
       await this.emitError(args, writer, synthesizer, pipelineRunId, err);
@@ -407,7 +410,7 @@ export class Orchestrator {
         const runCtx: AgentContext = {
           ...ctx,
           pipelineRunId,
-          priorOutputs: [...priorOutputs],
+          priorOutputs: priorForCitator(researcher.role, priorOutputs),
           systemPromptExtras: this.iterativeRoundInstructions(
             ctx.systemPromptExtras,
             round,
@@ -422,6 +425,7 @@ export class Orchestrator {
             pipelineRunId,
             result,
             startedAt,
+            priorOutputs,
           });
         } else {
           const text = await withRetry(
@@ -497,7 +501,7 @@ export class Orchestrator {
       const result = await agent.run({
         ...ctx,
         pipelineRunId,
-        priorOutputs,
+        priorOutputs: priorForCitator(synthesizer.role, priorOutputs),
         systemPromptExtras: this.iterativeSynthesisInstructions(
           ctx.systemPromptExtras,
           rounds
@@ -509,6 +513,7 @@ export class Orchestrator {
         pipelineRunId,
         result,
         startedAt,
+        priorOutputs,
       });
     } catch (err) {
       await this.emitError(args, writer, synthesizer, pipelineRunId, err);
@@ -601,7 +606,7 @@ export class Orchestrator {
                   await agent.run({
                     ...ctx,
                     pipelineRunId,
-                    priorOutputs: [...priorOutputs],
+                    priorOutputs: priorForCitator(def.role, priorOutputs),
                     systemPromptExtras: this.maestroDelegationInstructions(
                       ctx.systemPromptExtras,
                       instruction
@@ -683,7 +688,7 @@ export class Orchestrator {
       const result = await agent.run({
         ...ctx,
         pipelineRunId,
-        priorOutputs,
+        priorOutputs: priorForCitator(maestro.role, priorOutputs),
         extraTools,
         // Routage = délégations + outils éventuels + réponse finale : le
         // plafond du synthétiseur (5) brides le Maestro, on lui laisse de
@@ -700,6 +705,7 @@ export class Orchestrator {
         pipelineRunId,
         result,
         startedAt,
+        priorOutputs,
       });
     } catch (err) {
       await this.emitError(args, writer, maestro, pipelineRunId, err);
@@ -759,7 +765,7 @@ export class Orchestrator {
             const result = await agent.run({
               ...ctx,
               pipelineRunId,
-              priorOutputs: [...priorOutputs],
+              priorOutputs: priorForCitator(def.role, priorOutputs),
             });
             return collectText(result);
           },
@@ -841,7 +847,7 @@ export class Orchestrator {
       const result = await agent.run({
         ...ctx,
         pipelineRunId,
-        priorOutputs,
+        priorOutputs: priorForCitator(synthesizer.role, priorOutputs),
       });
       await this.streamFinal({
         args,
@@ -849,6 +855,7 @@ export class Orchestrator {
         pipelineRunId,
         result,
         startedAt,
+        priorOutputs,
       });
     } catch (err) {
       await this.emitError(args, writer, synthesizer, pipelineRunId, err);
@@ -909,45 +916,67 @@ export class Orchestrator {
     pipelineRunId: string;
     result: AgentRunResult;
     startedAt: number;
+    priorOutputs?: AgentPriorOutput[];
   }): Promise<void> {
     const { args, def, pipelineRunId, result, startedAt } = opts;
+    const priorOutputs = opts.priorOutputs ?? [];
+    const pipelineHasCitator = this.pipeline.agents.some(
+      (agent) => agent.role === "citator"
+    );
+
+    const finish = async (
+      shown: string,
+      usage?: { inputTokens?: number; outputTokens?: number }
+    ) => {
+      await this.emit(args, args.writer, {
+        type: "agent_finish",
+        pipelineRunId,
+        agentId: def.id,
+        role: def.role,
+        label: def.label,
+        latencyMs: Date.now() - startedAt,
+        inputTokens: usage?.inputTokens,
+        outputTokens: usage?.outputTokens,
+        preview: preview(shown),
+        modelId: def.modelOverride ?? null,
+      });
+    };
 
     if (result.kind === "stream") {
-      args.writer.merge(result.stream.toUIMessageStream());
+      // Avec un citateur dans la pipeline, on attend le texte complet : les
+      // délégations maestro remplissent priorOutputs pendant la consommation,
+      // puis on retire les citations non VALIDATED avant de l'afficher.
+      if (!pipelineHasCitator) {
+        args.writer.merge(result.stream.toUIMessageStream());
+        const finalText = await result.stream.text;
+        const usage = await result.stream.usage;
+        await finish(finalText, {
+          inputTokens: usage?.inputTokens ?? undefined,
+          outputTokens: usage?.outputTokens ?? undefined,
+        });
+        return;
+      }
+      await result.stream.consumeStream();
       const finalText = await result.stream.text;
       const usage = await result.stream.usage;
-
-      await this.emit(args, args.writer, {
-        type: "agent_finish",
-        pipelineRunId,
-        agentId: def.id,
-        role: def.role,
-        label: def.label,
-        latencyMs: Date.now() - startedAt,
+      const shown = applyCitationGate(finalText, buildCitationGate(priorOutputs));
+      this.streamStaticText(args.writer, shown);
+      await finish(shown, {
         inputTokens: usage?.inputTokens ?? undefined,
         outputTokens: usage?.outputTokens ?? undefined,
-        preview: preview(finalText),
-        modelId: def.modelOverride ?? null,
       });
-    } else {
-      // Agent terminal renvoyant du texte (non-stream) : on émet du VRAI texte
-      // (text-start/delta/end), seule voie effectivement rendue ET persistée
-      // par route.ts. Auparavant on écrivait data-final-text, consommé nulle
-      // part → la réponse était silencieusement perdue.
-      this.streamStaticText(args.writer, result.text);
-      await this.emit(args, args.writer, {
-        type: "agent_finish",
-        pipelineRunId,
-        agentId: def.id,
-        role: def.role,
-        label: def.label,
-        latencyMs: Date.now() - startedAt,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        preview: preview(result.text),
-        modelId: def.modelOverride ?? null,
-      });
+      return;
     }
+
+    const shown = applyCitationGate(
+      result.text,
+      buildCitationGate(priorOutputs)
+    );
+    this.streamStaticText(args.writer, shown);
+    await finish(shown, {
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+    });
   }
 
   /**

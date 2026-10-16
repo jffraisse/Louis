@@ -28,6 +28,7 @@ const TEXT_ID =
 
 export function canonicalArticleNum(raw: string): string {
   return raw
+    .replace(/[\u2010-\u2015]/g, "-")
     .replace(/\s+/g, "")
     .replace(/([LRD])\./gi, "$1")
     .toUpperCase();

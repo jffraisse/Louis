@@ -226,7 +226,7 @@ describe("Orchestrator: priorOutputs", () => {
       .join("");
     expect(deltas).toContain("article 1104");
     expect(deltas).not.toContain("1108");
-    expect(deltas).toContain("« non vérifié »");
+    expect(deltas).toContain("« référence retirée — non VALIDATED »");
   });
 
   it("ne montre au citateur que la recherche, pas le rédacteur", async () => {

@@ -3,6 +3,7 @@ import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { AGENT_DEFAULTS, runAgentStream, runDefaultAgent } from "./agents";
 import { applyCitationGate, buildCitationGate, priorForCitator } from "./citation-gate";
+import { ensureIntermediateText } from "./intermediate-text";
 import { withRetry } from "./retry";
 import {
   DEFAULT_ITERATIVE_ROUNDS,
@@ -243,6 +244,7 @@ export class Orchestrator {
               },
             }
           );
+          const output = ensureIntermediateText(def.role, def.label, text.value);
           writer.write({
             type: "data-agent-output",
             data: {
@@ -250,7 +252,7 @@ export class Orchestrator {
               agentId: def.id,
               role: def.role,
               label: def.label,
-              output: text.value,
+              output,
               round,
             },
           });
@@ -263,7 +265,7 @@ export class Orchestrator {
             latencyMs: Date.now() - startedAt,
             inputTokens: text.inputTokens,
             outputTokens: text.outputTokens,
-            preview: preview(text.value),
+            preview: preview(output),
             round,
             modelId: def.modelOverride ?? null,
           });
@@ -271,7 +273,7 @@ export class Orchestrator {
             agentId: def.id,
             role: def.role,
             label: def.label,
-            output: text.value,
+            output,
             round,
           };
         })
@@ -447,6 +449,11 @@ export class Orchestrator {
               },
             }
           );
+          const output = ensureIntermediateText(
+            researcher.role,
+            researcher.label,
+            text.value
+          );
           writer.write({
             type: "data-agent-output",
             data: {
@@ -454,7 +461,7 @@ export class Orchestrator {
               agentId: researcher.id,
               role: researcher.role,
               label: researcher.label,
-              output: text.value,
+              output,
               round,
             },
           });
@@ -467,7 +474,7 @@ export class Orchestrator {
             latencyMs: Date.now() - startedAt,
             inputTokens: text.inputTokens,
             outputTokens: text.outputTokens,
-            preview: preview(text.value),
+            preview: preview(output),
             round,
             modelId: researcher.modelOverride ?? null,
           });
@@ -475,7 +482,7 @@ export class Orchestrator {
             agentId: researcher.id,
             role: researcher.role,
             label: researcher.label,
-            output: text.value,
+            output,
             round,
           });
         }
@@ -630,11 +637,16 @@ export class Orchestrator {
                 },
               }
             );
+            const output = ensureIntermediateText(
+              def.role,
+              def.label,
+              text.value
+            );
             priorOutputs.push({
               agentId: def.id,
               role: def.role,
               label: def.label,
-              output: text.value,
+              output,
               round,
             });
             writer.write({
@@ -644,7 +656,7 @@ export class Orchestrator {
                 agentId: def.id,
                 role: def.role,
                 label: def.label,
-                output: text.value,
+                output,
                 round,
               },
             });
@@ -657,7 +669,7 @@ export class Orchestrator {
               latencyMs: Date.now() - startedAt,
               inputTokens: text.inputTokens,
               outputTokens: text.outputTokens,
-              preview: preview(text.value),
+              preview: preview(output),
               round,
               modelId: def.modelOverride ?? null,
             });
@@ -785,6 +797,7 @@ export class Orchestrator {
             },
           }
         );
+        const output = ensureIntermediateText(def.role, def.label, text.value);
         writer.write({
           type: "data-agent-output",
           data: {
@@ -792,7 +805,7 @@ export class Orchestrator {
             agentId: def.id,
             role: def.role,
             label: def.label,
-            output: text.value,
+            output,
           },
         });
         await this.emit(args, writer, {
@@ -804,14 +817,14 @@ export class Orchestrator {
           latencyMs: Date.now() - startedAt,
           inputTokens: text.inputTokens,
           outputTokens: text.outputTokens,
-          preview: preview(text.value),
+          preview: preview(output),
           modelId: def.modelOverride ?? null,
         });
         return {
           agentId: def.id,
           role: def.role,
           label: def.label,
-          output: text.value,
+          output,
         };
       })
     );
@@ -877,11 +890,12 @@ export class Orchestrator {
   }): Promise<void> {
     const { args, def, pipelineRunId, result, priorOutputs, startedAt } = opts;
     const text = await collectText(result);
+    const output = ensureIntermediateText(def.role, def.label, text.value);
     priorOutputs.push({
       agentId: def.id,
       role: def.role,
       label: def.label,
-      output: text.value,
+      output,
     });
     // Émet le texte complet de cet agent intermédiaire dans un canal
     // distinct (data-agent-output) que le client utilise pour la theatre
@@ -893,7 +907,7 @@ export class Orchestrator {
         agentId: def.id,
         role: def.role,
         label: def.label,
-        output: text.value,
+        output,
       },
     });
     await this.emit(args, args.writer, {
@@ -905,7 +919,7 @@ export class Orchestrator {
       latencyMs: Date.now() - startedAt,
       inputTokens: text.inputTokens,
       outputTokens: text.outputTokens,
-      preview: preview(text.value),
+      preview: preview(output),
       modelId: def.modelOverride ?? null,
     });
   }

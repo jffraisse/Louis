@@ -2,7 +2,6 @@ import {
   streamText,
   stepCountIs,
   convertToModelMessages,
-  type StopCondition,
   type ToolSet,
 } from "ai";
 import { loadProviderKey, modelFromKey } from "@/lib/providers/factory";
@@ -91,9 +90,10 @@ export async function runAgentStream(
     tools = { ...tools, ...ctx.extraTools };
   }
 
-  const stopWhen: StopCondition<ToolSet> = stepCountIs(
-    ctx.maxStepsOverride ?? defaults.maxSteps ?? 3
-  );
+  // Même contrat que runDefaultAgent : au dernier pas, retirer les outils
+  // pour forcer une conclusion textuelle (sinon le citateur peut brûler
+  // tout son budget en appels Légifrance et finir avec une sortie vide).
+  const maxSteps = ctx.maxStepsOverride ?? defaults.maxSteps ?? 3;
 
   const cached = applyCachedSystem({
     keyType: key.type,
@@ -107,7 +107,9 @@ export async function runAgentStream(
     system: cached.system,
     messages: cached.messages,
     tools,
-    stopWhen,
+    stopWhen: stepCountIs(maxSteps),
+    prepareStep: ({ stepNumber }) =>
+      stepNumber >= maxSteps - 1 ? { toolChoice: "none" as const } : {},
     temperature: def.temperature ?? undefined,
     abortSignal: ctx.abortSignal,
   });

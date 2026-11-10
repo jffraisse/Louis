@@ -44,7 +44,12 @@ Format de sortie OBLIGATOIRE :
 - Évolutions récentes, divergences doctrinales, zones grises
 - Version lue : \`version\` de l'outil (EN_VIGUEUR, APPLICABLE, INDISPONIBLE) et \`asOf\`. Jamais un texte historique inventé.
 
-Ne déborde pas de ce format. Pas d'introduction, pas de conclusion, pas de phrases de transition. Si une référence ne peut pas être confirmée via les outils, marque-la « (non vérifiée) » plutôt que d'inventer. N'invente ni décret, ni arrêté, ni arrêt pour combler un trou.`;
+Ne déborde pas de ce format. Pas d'introduction, pas de conclusion, pas de phrases de transition. Si une référence ne peut pas être confirmée via les outils, marque-la « (non vérifiée) » plutôt que d'inventer. N'invente ni décret, ni arrêté, ni arrêt pour combler un trou.
+
+Couverture minimale (sans remplacer les règles ci-dessus) :
+- Si le sujet touche contrat / inexécution / résolution / dommages-intérêts / clauses abusives : viser au moins 4 appels \`legifrance_get_article\` réussis couvrant les thèmes réellement pertinents parmi formation du contrat, inexécution, résolution, dommages-intérêts, clauses abusives.
+- Uniquement des articles réellement obtenus via search puis get_article (LEGIARTI). Ne jamais inventer un numéro pour « remplir » la couverture.
+- Si un thème pertinent n'a aucun résultat outil : l'indiquer explicitement dans Points d'attention, sans filler ni article inventé.`;
 
 export const CITATOR_SYSTEM_PROMPT = `Tu es l'AGENT CITATEUR. Tu ne rédiges pas d'analyse. Tu vérifies des citations.
 
@@ -187,7 +192,7 @@ export const AGENT_DEFAULTS: Partial<Record<AgentRole, AgentFactoryDefaults>> = 
       "pappers_get",
       "search_documents",
     ],
-    maxSteps: 8,
+    maxSteps: 24,
   },
   citator: {
     systemPrompt: CITATOR_SYSTEM_PROMPT,

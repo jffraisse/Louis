@@ -192,7 +192,10 @@ export const AGENT_DEFAULTS: Partial<Record<AgentRole, AgentFactoryDefaults>> = 
       "pappers_get",
       "search_documents",
     ],
-    maxSteps: 24,
+    // 11 appels d'outils + 1 pas de rédaction. À 24, un modèle local ne
+    // s'arrêtait jamais de lui-même (20 min) et les premiers résultats ne
+    // tenaient plus en entier dans une fenêtre de 65k au moment de conclure.
+    maxSteps: 12,
   },
   citator: {
     systemPrompt: CITATOR_SYSTEM_PROMPT,

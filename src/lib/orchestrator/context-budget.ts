@@ -15,16 +15,38 @@ import { estimateTokensFromChars } from "./cost-estimate";
  */
 const DEFAULT_BUDGET_TOKENS = 100_000;
 
+/**
+ * Part de la fenêtre du modèle accordée à l'historique quand seule
+ * LOUIS_CONTEXT_WINDOW_TOKENS est définie. Le reste sert au prompt système,
+ * aux schémas d'outils, aux résultats d'outils du tour et à la réponse.
+ */
+const HISTORY_FRACTION_OF_WINDOW = 0.35;
+
+function positiveIntFromEnv(name: string): number | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Fenêtre de contexte TOTALE du modèle (tokens), telle que configurée côté
+ * serveur d'inférence. null quand elle n'est pas déclarée : la garde de
+ * contexte par pas (step-context.ts) reste alors inactive.
+ */
+export function resolveContextWindowTokens(): number | null {
+  return positiveIntFromEnv("LOUIS_CONTEXT_WINDOW_TOKENS");
+}
+
 export function resolveContextBudgetTokens(): number {
-  const raw = process.env.LOUIS_CONTEXT_BUDGET_TOKENS;
-  if (raw) {
-    const n = Number.parseInt(raw, 10);
-    if (Number.isFinite(n) && n > 0) return n;
-  }
+  const explicit = positiveIntFromEnv("LOUIS_CONTEXT_BUDGET_TOKENS");
+  if (explicit) return explicit;
+  const window = resolveContextWindowTokens();
+  if (window) return Math.floor(window * HISTORY_FRACTION_OF_WINDOW);
   return DEFAULT_BUDGET_TOKENS;
 }
 
-function messageChars(m: ModelMessage): number {
+export function messageChars(m: ModelMessage): number {
   if (typeof m.content === "string") return m.content.length;
   let total = 0;
   for (const part of m.content) total += JSON.stringify(part).length;

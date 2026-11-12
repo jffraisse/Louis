@@ -7,6 +7,7 @@ import type {
   AgentRunResult,
   OrchestratorEvent,
   PipelineConfig,
+  StreamHandle,
 } from "./types";
 
 /**
@@ -148,6 +149,147 @@ describe("Orchestrator: événements", () => {
     expect(types.indexOf("agent_finish")).toBeLessThan(
       types.indexOf("agent_error")
     );
+  });
+});
+
+/**
+ * Agent factice au format `stream` dont l'appel modèle a échoué APRÈS un
+ * premier pas réussi : comme le vrai SDK, le flux se termine sans rejet et
+ * `.text` est vide ; seule `streamError` porte la panne.
+ */
+class FailedStreamAgent implements Agent {
+  runs = 0;
+
+  constructor(
+    public readonly definition: AgentDefinition,
+    private readonly error: unknown,
+    /** Nombre de runs en échec avant de réussir (par défaut : toujours). */
+    private readonly failures = Infinity
+  ) {}
+
+  async run(): Promise<AgentRunResult> {
+    this.runs++;
+    if (this.runs > this.failures) {
+      return { kind: "text", text: "articles trouvés" };
+    }
+    return {
+      kind: "stream",
+      stream: {
+        consumeStream: async () => {},
+        text: Promise.resolve(""),
+        usage: Promise.resolve({ inputTokens: 1, outputTokens: 0 }),
+      } as unknown as StreamHandle,
+      streamError: () => this.error,
+    };
+  }
+}
+
+describe("Orchestrator: erreur fournisseur en cours de stream", () => {
+  const contextOverflow = () =>
+    Object.assign(new Error("request exceeds the context window"), {
+      statusCode: 400,
+    });
+
+  it("agent intermédiaire : agent_error au lieu d'une « sortie vide »", async () => {
+    const pipeline = makePipeline([
+      makeAgentDef("research", "research", "Recherche"),
+      makeAgentDef("citator", "citator", "Citateur"),
+      makeAgentDef("maestro", "orchestrator", "Maestro"),
+    ]);
+    const orchestrator = new Orchestrator(pipeline);
+    const { writer, parts } = makeWriter();
+    const events: OrchestratorEvent[] = [];
+    const started: string[] = [];
+
+    await expect(
+      orchestrator.run({
+        ctx: makeCtx(),
+        writer,
+        onEvent: (e) => {
+          events.push(e);
+          if (e.type === "agent_start") started.push(e.agentId);
+        },
+        agentFactory: (def) =>
+          def.id === "research"
+            ? new FailedStreamAgent(def, contextOverflow())
+            : new FakeAgent(def, "x"),
+      })
+    ).rejects.toThrow("request exceeds the context window");
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "agent_error",
+        agentId: "research",
+        error: "request exceeds the context window",
+      })
+    );
+    // Le pipeline s'arrête : ni Citateur ni Maestro ne tournent à vide.
+    expect(started).toEqual(["research"]);
+    expect(JSON.stringify(parts)).not.toContain("sortie vide");
+  });
+
+  it("agent final derrière un citateur : l'erreur n'est pas avalée", async () => {
+    const pipeline = makePipeline([
+      makeAgentDef("citator", "citator", "Citateur"),
+      makeAgentDef("maestro", "orchestrator", "Maestro"),
+    ]);
+    const orchestrator = new Orchestrator(pipeline);
+    const { writer } = makeWriter();
+    const events: OrchestratorEvent[] = [];
+
+    await expect(
+      orchestrator.run({
+        ctx: makeCtx(),
+        writer,
+        onEvent: (e) => {
+          events.push(e);
+        },
+        agentFactory: (def) =>
+          def.id === "maestro"
+            ? new FailedStreamAgent(def, contextOverflow())
+            : new FakeAgent(def, "x"),
+      })
+    ).rejects.toThrow("request exceeds the context window");
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "agent_error", agentId: "maestro" })
+    );
+  });
+
+  it("erreur transitoire : l'agent intermédiaire est relancé", async () => {
+    vi.useFakeTimers();
+    try {
+      const pipeline = makePipeline([
+        makeAgentDef("research", "research", "Recherche"),
+        makeAgentDef("maestro", "orchestrator", "Maestro"),
+      ]);
+      const orchestrator = new Orchestrator(pipeline);
+      const { writer } = makeWriter();
+      const events: OrchestratorEvent[] = [];
+      // L'orchestrateur relance `run()` sur la même instance d'agent.
+      const flaky = new FailedStreamAgent(
+        pipeline.agents[0],
+        Object.assign(new Error("service unavailable"), { statusCode: 503 }),
+        1
+      );
+
+      const run = orchestrator.run({
+        ctx: makeCtx(),
+        writer,
+        onEvent: (e) => {
+          events.push(e);
+        },
+        agentFactory: (def) =>
+          def.id === "research" ? flaky : new FakeAgent(def, "x"),
+      });
+      await vi.runAllTimersAsync();
+      await run;
+
+      expect(flaky.runs).toBe(2);
+      expect(events.some((e) => e.type === "agent_error")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

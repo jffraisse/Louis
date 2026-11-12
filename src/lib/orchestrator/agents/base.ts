@@ -11,6 +11,8 @@ import { loadAgentCatalogue } from "../tool-catalogue";
 import { composeSystem, filterTools } from "./default";
 import { injectUntrustedContext } from "../untrusted";
 import { applyContextBudget } from "../context-budget";
+import { buildPrepareStep, createStepContextGuard } from "../step-context";
+import { createStreamErrorCapture } from "../stream-error";
 import { applyCachedSystem } from "../provider-tuning";
 import { resolveAgentRag, omitDocumentaryRagTools } from "./rag-scope";
 import type {
@@ -102,17 +104,27 @@ export async function runAgentStream(
     hasTools: Object.keys(tools).length > 0,
   });
 
+  // Garde de contexte par pas : inactive tant que
+  // LOUIS_CONTEXT_WINDOW_TOKENS n'est pas défini (cf. step-context.ts).
+  const guard = createStepContextGuard({
+    role: def.role,
+    label: def.label,
+    systemChars: cached.system?.length ?? 0,
+    toolCount: Object.keys(tools).length,
+  });
+  const streamError = createStreamErrorCapture(def);
+
   const stream = streamText({
     model,
     system: cached.system,
     messages: cached.messages,
     tools,
     stopWhen: stepCountIs(maxSteps),
-    prepareStep: ({ stepNumber }) =>
-      stepNumber >= maxSteps - 1 ? { toolChoice: "none" as const } : {},
+    prepareStep: buildPrepareStep({ maxSteps, guard }),
+    onError: streamError.onError,
     temperature: def.temperature ?? undefined,
     abortSignal: ctx.abortSignal,
   });
 
-  return { kind: "stream", stream };
+  return { kind: "stream", stream, streamError: streamError.get };
 }

@@ -203,6 +203,14 @@ export type AgentRunResult =
   | {
       kind: "stream";
       stream: StreamHandle;
+      /**
+       * Erreur fournisseur survenue pendant le stream, s'il y en a une. Le SDK
+       * ne la lève pas quand elle arrive après un premier pas réussi : il
+       * ferme le flux et `.text` renvoie celui du dernier pas abouti (souvent
+       * vide). L'orchestrateur lit donc cette valeur pour ne pas confondre un
+       * appel en échec avec un agent qui n'a rien écrit.
+       */
+      streamError?: () => unknown;
     }
   | {
       kind: "text";

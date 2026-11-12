@@ -2,12 +2,14 @@ import { describe, it, expect, afterEach } from "vitest";
 import type { ModelMessage } from "ai";
 import {
   resolveContextBudgetTokens,
+  resolveContextWindowTokens,
   estimateMessagesTokens,
   trimMessages,
 } from "./context-budget";
 
 afterEach(() => {
   delete process.env.LOUIS_CONTEXT_BUDGET_TOKENS;
+  delete process.env.LOUIS_CONTEXT_WINDOW_TOKENS;
 });
 
 describe("resolveContextBudgetTokens", () => {
@@ -21,6 +23,29 @@ describe("resolveContextBudgetTokens", () => {
   it("ignore une valeur invalide", () => {
     process.env.LOUIS_CONTEXT_BUDGET_TOKENS = "abc";
     expect(resolveContextBudgetTokens()).toBe(100_000);
+  });
+  it("sans budget explicite : dérive l'historique de la fenêtre déclarée", () => {
+    process.env.LOUIS_CONTEXT_WINDOW_TOKENS = "65536";
+    expect(resolveContextBudgetTokens()).toBe(22_937);
+  });
+  it("le budget explicite prime sur la fenêtre", () => {
+    process.env.LOUIS_CONTEXT_WINDOW_TOKENS = "65536";
+    process.env.LOUIS_CONTEXT_BUDGET_TOKENS = "6000";
+    expect(resolveContextBudgetTokens()).toBe(6000);
+  });
+});
+
+describe("resolveContextWindowTokens", () => {
+  it("null quand la fenêtre n'est pas déclarée ou invalide", () => {
+    expect(resolveContextWindowTokens()).toBeNull();
+    process.env.LOUIS_CONTEXT_WINDOW_TOKENS = "0";
+    expect(resolveContextWindowTokens()).toBeNull();
+    process.env.LOUIS_CONTEXT_WINDOW_TOKENS = "abc";
+    expect(resolveContextWindowTokens()).toBeNull();
+  });
+  it("lit LOUIS_CONTEXT_WINDOW_TOKENS", () => {
+    process.env.LOUIS_CONTEXT_WINDOW_TOKENS = "65536";
+    expect(resolveContextWindowTokens()).toBe(65_536);
   });
 });
 

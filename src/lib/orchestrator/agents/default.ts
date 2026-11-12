@@ -15,6 +15,8 @@ import {
   injectUntrustedContext,
 } from "../untrusted";
 import { applyContextBudget } from "../context-budget";
+import { buildPrepareStep, createStepContextGuard } from "../step-context";
+import { createStreamErrorCapture } from "../stream-error";
 import { applyCachedSystem } from "../provider-tuning";
 import type {
   AgentContext,
@@ -134,24 +136,34 @@ export async function runDefaultAgent(
     hasTools: Object.keys(tools).length > 0,
   });
 
+  // Budget de pas élargi : un tour réaliste (vérifier un article + lire le
+  // document joint + générer le .docx) peut chaîner 4-5 outils ; 5 ne
+  // laissait aucune marge et coupait le modèle en plein milieu. Au dernier
+  // pas autorisé, on retire les outils pour forcer une vraie conclusion
+  // plutôt qu'un appel d'outil tronqué.
+  const maxSteps = ctx.maxStepsOverride ?? 8;
+
+  // Garde de contexte par pas : inactive tant que
+  // LOUIS_CONTEXT_WINDOW_TOKENS n'est pas défini (cf. step-context.ts).
+  const guard = createStepContextGuard({
+    role: def.role,
+    label: def.label,
+    systemChars: cached.system?.length ?? 0,
+    toolCount: Object.keys(tools).length,
+  });
+  const streamError = createStreamErrorCapture(def);
+
   const stream = streamText({
     model,
     system: cached.system,
     messages: cached.messages,
     tools,
-    // Budget de pas élargi : un tour réaliste (vérifier un article + lire le
-    // document joint + générer le .docx) peut chaîner 4-5 outils ; 5 ne
-    // laissait aucune marge et coupait le modèle en plein milieu. Au dernier
-    // pas autorisé, on retire les outils pour forcer une vraie conclusion
-    // plutôt qu'un appel d'outil tronqué.
-    stopWhen: stepCountIs(ctx.maxStepsOverride ?? 8),
-    prepareStep: ({ stepNumber }) =>
-      stepNumber >= (ctx.maxStepsOverride ?? 8) - 1
-        ? { toolChoice: "none" }
-        : {},
+    stopWhen: stepCountIs(maxSteps),
+    prepareStep: buildPrepareStep({ maxSteps, guard }),
+    onError: streamError.onError,
     temperature: def.temperature ?? undefined,
     abortSignal: ctx.abortSignal,
   });
 
-  return { kind: "stream", stream };
+  return { kind: "stream", stream, streamError: streamError.get };
 }

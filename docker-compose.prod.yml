@@ -119,6 +119,10 @@ services:
       LOUIS_EMBEDDING_BASE_URL: ${LOUIS_EMBEDDING_BASE_URL:-}
       LOUIS_EMBEDDING_MODEL: ${LOUIS_EMBEDDING_MODEL:-}
       LOUIS_EMBEDDING_API_KEY: ${LOUIS_EMBEDDING_API_KEY:-}
+      # Modèle local à petite fenêtre : même contrainte de passthrough. Sans
+      # ces lignes, les valeurs du .env n'atteignent jamais l'application.
+      LOUIS_CONTEXT_WINDOW_TOKENS: ${LOUIS_CONTEXT_WINDOW_TOKENS:-}
+      LOUIS_CONTEXT_BUDGET_TOKENS: ${LOUIS_CONTEXT_BUDGET_TOKENS:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

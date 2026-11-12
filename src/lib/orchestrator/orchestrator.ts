@@ -970,14 +970,17 @@ export class Orchestrator {
         });
         return;
       }
-      await result.stream.consumeStream();
-      const finalText = await result.stream.text;
-      const usage = await result.stream.usage;
-      const shown = applyCitationGate(finalText, buildCitationGate(priorOutputs));
+      // collectText relance une éventuelle erreur fournisseur : ce flux n'est
+      // pas fusionné vers l'UI, elle serait sinon perdue (réponse finale vide).
+      const collected = await collectText(result);
+      const shown = applyCitationGate(
+        collected.value,
+        buildCitationGate(priorOutputs)
+      );
       this.streamStaticText(args.writer, shown);
       await finish(shown, {
-        inputTokens: usage?.inputTokens ?? undefined,
-        outputTokens: usage?.outputTokens ?? undefined,
+        inputTokens: collected.inputTokens,
+        outputTokens: collected.outputTokens,
       });
       return;
     }
@@ -1085,6 +1088,13 @@ async function collectText(result: AgentRunResult): Promise<{
 }> {
   if (result.kind === "stream") {
     await result.stream.consumeStream();
+    // Un appel fournisseur en échec après un premier pas réussi ne fait pas
+    // rejeter `.text` : le SDK renvoie le texte du dernier pas abouti (souvent
+    // vide). On relance donc l'erreur capturée pour qu'elle suive le chemin
+    // normal (retry si transitoire, sinon agent_error) au lieu de produire un
+    // « sortie vide » muet.
+    const failure = result.streamError?.();
+    if (failure !== undefined) throw failure;
     const value = await result.stream.text;
     const usage = await result.stream.usage;
     return {

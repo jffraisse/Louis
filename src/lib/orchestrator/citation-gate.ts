@@ -28,8 +28,15 @@ const BARE_LNUM = new RegExp(
   `\\b([LRD]\\.\\s*\\d{1,4}(?:${H}\\d+){0,3})\\b`,
   "gi"
 );
-/** Numéros nus de code (1109, 1231-1). Pas les 1–2 chiffres (trop ambigus). */
-const BARE_ARTICLE = new RegExp(`\\b(\\d{3,4}(?:${H}\\d{1,3}){0,3})\\b`, "gi");
+/**
+ * Numéros nus de code (1109, 1231-1). Quatre chiffres min. : un bare « 403 »
+ * (HTTP) ou « 99 » ne doit pas être pris pour un article ; « art. 138 » reste
+ * couvert par ARTICLE_SEQ.
+ */
+const BARE_ARTICLE = new RegExp(`\\b(\\d{4}(?:${H}\\d{1,3}){0,3})\\b`, "gi");
+/** Ligne machine absente : tableau du citateur avec statut outil + id + num. */
+const TABLE_VALIDATED =
+  /\bVALIDATED\b\s+(LEGIARTI\d+|JURITEXT\d+|CETATEXT\d+|ECLI:[^\s|]+)\s+(\S+)\s+(EN_VIGUEUR|APPLICABLE)\b/gi;
 /** Pourvoi du type 17-14.125, que l'allowlist d'articles ne couvre jamais. */
 const POURVOI = new RegExp(`(?:\\bn[°ºo]\\s*)?\\b\\d{2}${H}\\d{2}\\.\\d{3}\\b`, "gi");
 const MONTHS =
@@ -74,9 +81,16 @@ export function buildCitationGate(
     return { active: false, validatedNums: new Set(), validatedIds: new Set() };
   }
 
-  // Sortie vide : l'agent n'a rien produit — ne pas activer le filtre.
-  // Texte sans @@CITE : filtre actif à allowlist vide (fail-closed).
-  if (!citator.some((output) => output.output.trim().length > 0)) {
+  // Sortie vide, fuite `<tool_call>` en prose, ou diagnostic « outil non exécuté » :
+  // pas de vérification réelle — ne pas activer le filtre.
+  const usable = citator.some((output) => {
+    const text = output.output.trim();
+    if (!text) return false;
+    if (/<tool_call\b/i.test(text) || /<function\s*=/i.test(text)) return false;
+    if (/appel d'outil non exécuté/i.test(text)) return false;
+    return true;
+  });
+  if (!usable) {
     return { active: false, validatedNums: new Set(), validatedIds: new Set() };
   }
 
@@ -90,6 +104,17 @@ export function buildCitationGate(
       const id = (marker[2] ?? "").toUpperCase();
       if (id && id !== "-") validatedIds.add(id);
       rememberNum(validatedNums, marker[3] ?? "");
+    }
+    // Secours : le modèle a parfois rempli le tableau sans coller @@CITE.
+    // Sans ça, allowlist vide → la note Maestro est illisible.
+    if (validatedIds.size === 0) {
+      for (const row of output.output.matchAll(new RegExp(TABLE_VALIDATED.source, "gi"))) {
+        const id = (row[1] ?? "").toUpperCase();
+        const version = (row[3] ?? "").toUpperCase();
+        if (!id || version === "INDISPONIBLE") continue;
+        validatedIds.add(id);
+        rememberNum(validatedNums, row[2] ?? "");
+      }
     }
   }
 
@@ -127,10 +152,12 @@ function redactSequence(sequence: string, gate: CitationGate): {
   return { text, anyAllowed, anyBlocked };
 }
 
-/** Un numéro nu qui ressemble à une loi (2004-575) ou une unité, pas un article. */
+/** Un numéro nu qui ressemble à une loi, une date ISO ou une unité, pas un article. */
 function skipBareArticle(match: string, line: string, index: number): boolean {
   const canon = canonicalArticleNum(match);
   if (!canon || isYear(canon)) return true;
+  // as_of / ISO : « 2025-01-31 » matche BARE_ARTICLE (4 + 2 + 2) sinon.
+  if (/^\d{4}(?:-\d{2}){2}$/.test(canon)) return true;
   if (/^(19|20)\d{2}-\d{2,5}$/.test(canon)) return true;
   const before = line.slice(Math.max(0, index - 16), index);
   if (/n[°ºo]\s*$/i.test(before)) return true;

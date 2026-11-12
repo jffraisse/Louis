@@ -38,6 +38,17 @@ describe("buildCitationGate", () => {
     expect(gate.active).toBe(false);
   });
 
+  it("reste inactif si le citateur a collé un tool_call en prose", () => {
+    const gate = buildCitationGate([
+      {
+        role: "citator",
+        output:
+          "<tool_call> <function=legifrance_verify_quote> </function> </tool_call>",
+      },
+    ]);
+    expect(gate.active).toBe(false);
+  });
+
   it("refuse une version INDISPONIBLE même si le status est VALIDATED", () => {
     const gate = buildCitationGate([
       {
@@ -48,6 +59,19 @@ describe("buildCitationGate", () => {
     ]);
     expect(gate.validatedIds.size).toBe(0);
     expect(gate.validatedNums.size).toBe(0);
+  });
+
+  it("récupère id/num depuis un tableau VALIDATED si @@CITE manque", () => {
+    const gate = buildCitationGate([
+      {
+        role: "citator",
+        output:
+          "art. 1171 Code civil VALIDATED LEGIARTI000036829836 1171 APPLICABLE https://example.test",
+      },
+    ]);
+    expect(gate.active).toBe(true);
+    expect(gate.validatedIds.has("LEGIARTI000036829836")).toBe(true);
+    expect(gate.validatedNums.has("1171")).toBe(true);
   });
 });
 
@@ -127,6 +151,17 @@ describe("applyCitationGate", () => {
     expect(out).toContain("2004-575");
     expect(out).toContain("24 mois");
     expect(out).toContain("article 1104");
+  });
+
+  it("ne confond pas une date ISO as_of ni un code HTTP avec un article", () => {
+    const out = applyCitationGate(
+      "Version APPLICABLE, asOf 2025-01-31. Judilibre a refusé l'authentification (403). Article 1104.",
+      gate
+    );
+    expect(out).toContain("2025-01-31");
+    expect(out).toContain("(403)");
+    expect(out).toContain("Article 1104");
+    expect(out).not.toContain("Contrôle orchestrateur");
   });
 
   it("retire un numéro de pourvoi inventé, tiret typographique compris", () => {

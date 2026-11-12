@@ -67,9 +67,9 @@ Pour CHAQUE article de code cité par les agents précédents :
 9. Si l'outil répond INDISPONIBLE, status INTROUVABLE et version INDISPONIBLE. Ne colle pas le texte en vigueur à la place.
 10. N'invente jamais un décret, un arrêté ou un arrêt « de principe » pour combler un trou.
 
-Ligne machine OBLIGATOIRE, une par vérification. C'est la seule ligne que l'orchestrateur lit :
+Ligne machine OBLIGATOIRE, une par vérification, AVANT ou APRÈS le tableau. Sans ces lignes, l'orchestrateur retire toutes les références de la note finale :
 @@CITE status=VALIDATED id=LEGIARTI000… num=1104 version=APPLICABLE@@
-status et version sont ceux de l'outil. num=- s'il n'y a pas de numéro d'article. version=INDISPONIBLE ou status autre que VALIDATED : pas de ✅.
+status et version sont ceux de l'outil. num=- s'il n'y a pas de numéro d'article. version=INDISPONIBLE ou status autre que VALIDATED : pas de ✅. Interdit de se contenter du tableau sans coller les lignes @@CITE.
 
 Format (toujours produire ce texte, même court) :
 

@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { streamText, stepCountIs, tool } from "ai";
 import { MockLanguageModelV3, convertArrayToReadableStream } from "ai/test";
 import { z } from "zod";
-import { buildPrepareStep, createStepContextGuard } from "./step-context";
+import {
+  CONCLUDE_INSTRUCTION,
+  buildPrepareStep,
+  createStepContextGuard,
+} from "./step-context";
 import { createStreamErrorCapture } from "./stream-error";
 
 vi.mock("@/lib/log", () => ({
@@ -156,7 +160,7 @@ describe("erreur fournisseur en cours de run", () => {
 describe("garde de contexte par pas, de bout en bout", () => {
   it("compacte ce qui est envoyé au modèle puis le fait conclure avant la fenêtre", async () => {
     const maxSteps = 24;
-    const windowTokens = 4000;
+    const windowTokens = 8000;
     // Un modèle qui appellerait des outils indéfiniment si on le laissait faire.
     let n = 0;
     const model = new MockLanguageModelV3({
@@ -200,8 +204,20 @@ describe("garde de contexte par pas, de bout en bout", () => {
       expect(serialized).toContain(QUESTION);
     }
 
-    const last = JSON.stringify(sent[sent.length - 1].prompt);
+    const lastPrompt = sent[sent.length - 1].prompt;
+    const last = JSON.stringify(lastPrompt);
     expect(last).toContain("tronqué");
+    // Le pas de conclusion se termine par la consigne explicite, et elle
+    // n'apparaît dans aucun pas précédent.
+    expect(lastPrompt[lastPrompt.length - 1]).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: CONCLUDE_INSTRUCTION }],
+    });
+    for (const callOptions of sent.slice(0, -1)) {
+      expect(JSON.stringify(callOptions.prompt)).not.toContain(
+        CONCLUDE_INSTRUCTION
+      );
+    }
     // Les identifiants et l'URL survivent au compactage.
     expect(last).toContain("LEGIARTIc1");
     expect(last).toContain("LEGIARTI000032040861");
@@ -242,6 +258,8 @@ describe("garde de contexte par pas, de bout en bout", () => {
 
     expect(await stream.text).toBe("fin");
     expect(model.doStreamCalls).toHaveLength(maxSteps);
-    expect(JSON.stringify(model.doStreamCalls[3].prompt)).not.toContain("tronqué");
+    const lastPrompt = JSON.stringify(model.doStreamCalls[3].prompt);
+    expect(lastPrompt).not.toContain("tronqué");
+    expect(lastPrompt).not.toContain(CONCLUDE_INSTRUCTION);
   });
 });

@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ModelMessage } from "ai";
+import { log } from "@/lib/log";
 import {
   COMPACTION_LEVELS,
+  CONCLUDE_INSTRUCTION,
   buildPrepareStep,
   compactToolResults,
   createStepContextGuard,
@@ -203,6 +205,42 @@ describe("planStepContext", () => {
     expect(plan.forceText).toBe(true);
   });
 
+  it("ne poursuit pas au prix d'un compactage fort : conclut au niveau léger", () => {
+    // Le niveau 1 ne repasse pas sous le seuil « continuer », le niveau 2 oui.
+    // Plutôt que de réduire les anciens textes à quelques mots pour continuer
+    // à chercher, on conclut avec le niveau 1.
+    const messages = researchRun(11, 4);
+    const plan = planStepContext({ ...base, messages, stepNumber: 11 });
+    expect(plan.forceText).toBe(true);
+    expect(plan.level).toBe(1);
+    expect(plan.estimatedTokens).toBeLessThanOrEqual(plan.limitTokens * 0.9);
+  });
+
+  it("dernier pas : envoie les résultats intacts s'ils tiennent", () => {
+    const messages = researchRun(18);
+    const midRun = planStepContext({ ...base, messages, stepNumber: 18 });
+    expect(midRun).toMatchObject({ level: 1, forceText: false });
+
+    const last = planStepContext({
+      ...base,
+      messages,
+      stepNumber: 18,
+      lastStep: true,
+    });
+    expect(last).toMatchObject({ level: 0, forceText: true });
+    expect(last.messages).toBeUndefined();
+  });
+
+  it("ne redescend pas sous le niveau déjà appliqué", () => {
+    const plan = planStepContext({
+      ...base,
+      messages: researchRun(3),
+      stepNumber: 3,
+      minLevel: 1,
+    });
+    expect(plan).toMatchObject({ level: 1, forceText: false });
+  });
+
   it("au premier pas : ne retire jamais les outils", () => {
     const plan = planStepContext({
       ...base,
@@ -275,6 +313,53 @@ describe("createStepContextGuard", () => {
     );
   });
 
+  it("garde le niveau de compactage d'un pas à l'autre", () => {
+    const guard = createStepContextGuard({ ...opts, windowTokens: 65_536 });
+    expect(
+      guard({ messages: researchRun(20), stepNumber: 20, steps: [] })!.level
+    ).toBe(1);
+    // Même si l'estimation retombait sous le seuil (ratio recalé), repasser
+    // au niveau 0 ferait retraiter tout le prompt au serveur.
+    expect(
+      guard({ messages: researchRun(3), stepNumber: 21, steps: [] })!.level
+    ).toBe(1);
+  });
+
+  it("journalise les outils du pas précédent, sans leurs arguments", () => {
+    const info = vi.mocked(log.info);
+    info.mockClear();
+    const guard = createStepContextGuard({ ...opts, windowTokens: 65_536 });
+    guard({
+      messages: researchRun(2),
+      stepNumber: 2,
+      steps: [
+        {
+          toolCalls: [
+            { toolCallId: "a", toolName: "legifrance_search" },
+            { toolCallId: "b", toolName: "legifrance_get_article" },
+            { toolCallId: "c", toolName: "pappers_search" },
+          ],
+          toolResults: [
+            { toolCallId: "a", output: { ok: true, data: { hits: [] } } },
+            {
+              toolCallId: "b",
+              output: { ok: false, reason: "validation", error: "INDISPONIBLE" },
+            },
+          ],
+        },
+      ],
+    });
+    const meta = info.mock.calls[0][2] as Record<string, unknown>;
+    expect(meta.previousTools).toEqual([
+      "legifrance_search:ok",
+      "legifrance_get_article:échec(validation)",
+      "pappers_search:sans-résultat",
+    ]);
+    expect(meta.assistantChars).toBeGreaterThan(0);
+    expect(meta.toolResultChars).toBeGreaterThan(meta.assistantChars as number);
+    expect(JSON.stringify(meta)).not.toContain("INDISPONIBLE");
+  });
+
   it("borne le ratio quand la mesure est aberrante", () => {
     const guard = createStepContextGuard({ ...opts, windowTokens: 65_536 });
     const messages = researchRun(4);
@@ -293,31 +378,81 @@ describe("createStepContextGuard", () => {
 
 describe("buildPrepareStep", () => {
   const noGuard = () => null;
+  const planOf = (over: Partial<ReturnType<typeof planStepContext>> = {}) => ({
+    forceText: false,
+    level: 0,
+    estimatedTokens: 1,
+    rawEstimatedTokens: 1,
+    limitTokens: 3,
+    ...over,
+  });
+  const afterTools = researchRun(2);
 
-  it("sans garde : conclusion textuelle au dernier pas seulement", () => {
+  it("sans garde : conclusion textuelle au dernier pas seulement, sans rien ajouter", () => {
     const prepare = buildPrepareStep({ maxSteps: 3, guard: noGuard });
-    expect(prepare({ messages: [], stepNumber: 0, steps: [] })).toEqual({});
-    expect(prepare({ messages: [], stepNumber: 1, steps: [] })).toEqual({});
-    expect(prepare({ messages: [], stepNumber: 2, steps: [] })).toEqual({
+    expect(prepare({ messages: afterTools, stepNumber: 0, steps: [] })).toEqual({});
+    expect(prepare({ messages: afterTools, stepNumber: 1, steps: [] })).toEqual({});
+    expect(prepare({ messages: afterTools, stepNumber: 2, steps: [] })).toEqual({
       toolChoice: "none",
     });
   });
 
-  it("applique les messages compactés et la conclusion demandés par la garde", () => {
-    const compacted = [user("x")];
+  it("indique à la garde quand c'est le dernier pas", () => {
+    const seen: Array<boolean | undefined> = [];
+    const prepare = buildPrepareStep({
+      maxSteps: 2,
+      guard: (args) => {
+        seen.push(args.lastStep);
+        return planOf();
+      },
+    });
+    prepare({ messages: afterTools, stepNumber: 0, steps: [] });
+    prepare({ messages: afterTools, stepNumber: 1, steps: [] });
+    expect(seen).toEqual([false, true]);
+  });
+
+  it("garde active, pas intermédiaire : ni consigne ni retrait des outils", () => {
+    const prepare = buildPrepareStep({ maxSteps: 24, guard: () => planOf() });
+    expect(prepare({ messages: afterTools, stepNumber: 5, steps: [] })).toEqual({});
+  });
+
+  it("conclusion demandée par la garde : outils retirés et consigne en dernier message", () => {
+    const compacted = compactToolResults(afterTools, 1);
     const prepare = buildPrepareStep({
       maxSteps: 24,
-      guard: () => ({
-        messages: compacted,
-        forceText: true,
-        level: 2,
-        estimatedTokens: 1,
-        rawEstimatedTokens: 2,
-        limitTokens: 3,
-      }),
+      guard: () => planOf({ messages: compacted, forceText: true, level: 1 }),
     });
-    expect(prepare({ messages: [], stepNumber: 5, steps: [] })).toEqual({
-      messages: compacted,
+    const out = prepare({ messages: afterTools, stepNumber: 5, steps: [] });
+    expect(out.toolChoice).toBe("none");
+    expect(out.messages).toEqual([
+      ...compacted,
+      { role: "user", content: CONCLUDE_INSTRUCTION },
+    ]);
+  });
+
+  it("dernier pas avec garde active : consigne ajoutée même sans compactage", () => {
+    const prepare = buildPrepareStep({
+      maxSteps: 6,
+      guard: () => planOf({ forceText: true }),
+    });
+    const out = prepare({ messages: afterTools, stepNumber: 5, steps: [] });
+    expect(out.toolChoice).toBe("none");
+    expect(out.messages).toHaveLength(afterTools.length + 1);
+    expect(out.messages?.at(-1)).toEqual({
+      role: "user",
+      content: CONCLUDE_INSTRUCTION,
+    });
+    // Les messages d'origine ne sont pas modifiés.
+    expect(afterTools.at(-1)?.role).toBe("tool");
+  });
+
+  it("pas de consigne quand le dernier message n'est pas un résultat d'outil", () => {
+    const question = [user("Bonjour")];
+    const prepare = buildPrepareStep({
+      maxSteps: 1,
+      guard: () => planOf({ forceText: true }),
+    });
+    expect(prepare({ messages: question, stepNumber: 0, steps: [] })).toEqual({
       toolChoice: "none",
     });
   });

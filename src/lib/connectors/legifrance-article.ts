@@ -1,6 +1,8 @@
 import { toolError, toolOk, runTool, type ToolResult } from "@/lib/tools/result";
 import {
   articleNumsEqual,
+  isOtherCode,
+  listedArticleNums,
   mapSearchRow,
   pickBestArticleId,
   wantedArticleNum,
@@ -15,6 +17,7 @@ import {
 import {
   codeNameFromQuery,
   datedCodeSearchBody,
+  isoDay,
   parseAsOf,
   versionCovers,
 } from "./legifrance-date";
@@ -117,6 +120,69 @@ function unavailable(message: string) {
   return toolError("validation", `INDISPONIBLE : ${message}`);
 }
 
+/**
+ * Recherche d'un article par numéro exact dans un code, à une date (FAQ
+ * Légifrance : NUM_ARTICLE + NOM_CODE + DATE_VERSION). `seen` décrit ce que
+ * l'API a renvoyé, pour qu'un refus dise s'il n'y avait rien ou si aucun
+ * résultat ne portait le numéro.
+ */
+async function findArticleByNumber(
+  userId: string,
+  opts: { query: string; num: string; codeName: string; dateMs: number }
+): Promise<ToolResult<{ id: string | null; seen: string }>> {
+  const searched = await pisteFetch<{ results?: SearchRow[] }>(
+    userId,
+    "POST",
+    `${LEGIFRANCE_PATH}/search`,
+    {
+      body: datedCodeSearchBody({
+        articleNum: opts.num,
+        codeName: opts.codeName,
+        singleDate: opts.dateMs,
+      }),
+      serviceName: "Légifrance",
+    }
+  );
+  if (!searched.ok) return searched;
+
+  const hits = (searched.data.results ?? []).map(mapSearchRow);
+  const nums = listedArticleNums(hits);
+  const articleCount = hits.reduce((n, hit) => n + hit.articles.length, 0);
+  const seen =
+    hits.length === 0
+      ? "recherche datée sans résultat"
+      : `recherche datée : ${hits.length} résultat(s), ${articleCount} article(s), ${
+          nums.length > 0 ? `numéros ${nums.slice(0, 8).join(", ")}` : "sans numéro"
+        }`;
+  return toolOk({
+    id: pickBestArticleId(hits, opts.query, { asOfMs: opts.dateMs }),
+    seen,
+  });
+}
+
+/**
+ * LEGIARTI de la version en vigueur aujourd'hui : recherche exacte par
+ * numéro quand la requête nomme un code, sinon (ou si elle ne donne rien)
+ * recherche plein texte.
+ */
+async function findCurrentArticleId(
+  userId: string,
+  opts: { query: string; num: string | null; codeName: string | null }
+): Promise<ToolResult<string | null>> {
+  if (opts.codeName && opts.num) {
+    const found = await findArticleByNumber(userId, {
+      query: opts.query,
+      num: opts.num,
+      codeName: opts.codeName,
+      dateMs: Date.now(),
+    });
+    if (found.ok && found.data.id) return toolOk(found.data.id);
+  }
+  const search = await legifranceSearch(userId, opts.query, "CODE_DATE");
+  if (!search.ok) return search;
+  return toolOk(pickBestArticleId(search.data.hits, opts.query));
+}
+
 export async function legifranceGetArticle(
   userId: string,
   opts: { id?: string; query?: string; asOf?: string }
@@ -139,69 +205,107 @@ export async function legifranceGetArticle(
       );
     }
 
+    const query = opts.query?.trim() ?? "";
+    const codeName = query ? codeNameFromQuery(query) : null;
+    const num = query ? wantedArticleNum(query) : null;
+
     if (asOfMs != null) {
-      const query = opts.query?.trim() ?? "";
-      const codeName = query ? codeNameFromQuery(query) : null;
-      const num = query ? wantedArticleNum(query) : null;
-      if (codeName && num) {
-        const searched = await pisteFetch<{ results?: SearchRow[] }>(
-          userId,
-          "POST",
-          `${LEGIFRANCE_PATH}/search`,
-          {
-            body: datedCodeSearchBody({
-              articleNum: num,
-              codeName,
-              singleDate: asOfMs,
-            }),
-            serviceName: "Légifrance",
-          }
-        );
-        if (!searched.ok) return searched;
-        const hits = (searched.data.results ?? []).map(mapSearchRow);
-        const picked = pickBestArticleId(hits, query);
-        if (!picked) {
-          return unavailable(
-            `aucun article ${num} du ${codeName} au ${asOfRaw}. L'édition voisine n'est pas renvoyée.`
-          );
+      // Une version est applicable à la date si son intervalle la contient
+      // et si c'est bien le numéro demandé. Chaque candidat écarté laisse
+      // sa raison dans `misses`, reprise dans le refus final.
+      const misses: string[] = [];
+      const tried = new Set<string>();
+      const tryVersion = async (
+        id: string
+      ): Promise<ToolResult<{ article: LegifranceArticle }> | null> => {
+        if (tried.has(id)) return null;
+        tried.add(id);
+        const loaded = await fetchArticleById(userId, id);
+        if (!loaded.ok) {
+          // Panne (auth, réseau, serveur) : on la remonte telle quelle.
+          if (loaded.reason !== "validation") return loaded;
+          misses.push(loaded.error);
+          return null;
         }
-        articleId = picked;
-      } else if (!isArticleId(articleId)) {
+        const article = loaded.data;
+        if (num && article.num && !articleNumsEqual(num, article.num)) {
+          misses.push(`${article.id} est l'article ${article.num}, pas le ${num}`);
+          return null;
+        }
+        if (codeName && article.codeTitle && isOtherCode(article.codeTitle, codeName)) {
+          misses.push(`${article.id} relève du ${article.codeTitle}, pas du ${codeName}`);
+          return null;
+        }
+        if (!versionCovers(article.dateDebut, article.dateFin, asOfMs)) {
+          misses.push(
+            `${article.id} (du ${isoDay(article.dateDebut)} au ${isoDay(article.dateFin)}) ne couvre pas le ${asOfRaw}`
+          );
+          return null;
+        }
+        return toolOk({
+          article: { ...article, version: "APPLICABLE", asOf: asOfRaw },
+        });
+      };
+
+      // 1. Un LEGIARTI fourni désigne une version précise : si elle couvre
+      //    la date, c'est la réponse, sans dépendre de la recherche.
+      if (isArticleId(articleId)) {
+        const direct = await tryVersion(articleId);
+        if (direct) return direct;
+      }
+
+      if (!(codeName && num)) {
         return unavailable(
-          "pour une date, indiquez query=« numéro + nom du code », par exemple « 1104 Code civil »."
+          misses.length > 0
+            ? `${misses.join(" ; ")}. L'édition voisine n'est pas renvoyée.`
+            : "pour une date, indiquez query=« numéro + nom du code », par exemple « 1104 Code civil »."
         );
       }
 
-      const loaded = await fetchArticleById(userId, articleId);
-      if (!loaded.ok) return loaded;
-      if (!versionCovers(loaded.data.dateDebut, loaded.data.dateFin, asOfMs)) {
-        return unavailable(
-          `${loaded.data.id} (du ${loaded.data.dateDebut ?? "?"} au ${loaded.data.dateFin ?? "?"}) ne couvre pas le ${asOfRaw}. L'édition voisine n'est pas renvoyée.`
-        );
-      }
-      return toolOk({
-        article: { ...loaded.data, version: "APPLICABLE", asOf: asOfRaw },
+      // 2. Recherche datée par numéro exact dans le code.
+      const found = await findArticleByNumber(userId, {
+        query,
+        num,
+        codeName,
+        dateMs: asOfMs,
       });
+      if (!found.ok) return found;
+      if (found.data.id) {
+        const dated = await tryVersion(found.data.id);
+        if (dated) return dated;
+      } else {
+        misses.push(found.data.seen);
+      }
+
+      // 3. Version en vigueur aujourd'hui : si elle était déjà en vigueur à
+      //    la date demandée, c'est la version applicable.
+      const current = await findCurrentArticleId(userId, { query, num, codeName });
+      if (current.ok && current.data) {
+        const inForce = await tryVersion(current.data);
+        if (inForce) return inForce;
+      }
+
+      return unavailable(
+        `aucun article ${num} du ${codeName} au ${asOfRaw} (${misses.join(" ; ")}). L'édition voisine n'est pas renvoyée.`
+      );
     }
 
     if (!isArticleId(articleId)) {
-      const query = opts.query?.trim();
       if (!query) {
         return toolError(
           "validation",
           "Fournissez id=LEGIARTI… ou query=« numéro + nom du code »."
         );
       }
-      const search = await legifranceSearch(userId, query, "CODE_DATE");
-      if (!search.ok) return search;
-      const picked = pickBestArticleId(search.data.hits, query);
-      if (!picked) {
+      const current = await findCurrentArticleId(userId, { query, num, codeName });
+      if (!current.ok) return current;
+      if (!current.data) {
         return toolError(
           "validation",
           `Aucun article LEGIARTI correspondant à « ${query} ». Les hits étaient des textes entiers ou un autre numéro. Relancez avec le numéro exact et le nom du code.`
         );
       }
-      articleId = picked;
+      articleId = current.data;
     }
 
     const loaded = await fetchArticleById(userId, articleId);

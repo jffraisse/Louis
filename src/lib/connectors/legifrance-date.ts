@@ -84,6 +84,12 @@ export function toEpoch(value: string | number | null | undefined): number | nul
   return Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
 }
 
+/** Date lisible (YYYY-MM-DD) pour les messages ; « ? » si illisible. */
+export function isoDay(value: string | number | null | undefined): string {
+  const ms = toEpoch(value);
+  return ms == null ? "?" : new Date(ms).toISOString().slice(0, 10);
+}
+
 const OPEN_ENDED = Date.UTC(2500, 0, 1);
 
 /**

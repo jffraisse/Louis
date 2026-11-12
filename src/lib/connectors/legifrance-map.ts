@@ -3,15 +3,37 @@
  * d'article. Aucun appel réseau — testable sans PISTE.
  */
 
+import { codeNameFromQuery, versionCovers } from "./legifrance-date";
+
 export const EXCERPT_MAX = 700;
+
+/**
+ * Un extrait = un article. L'API range son numéro dans `num` (`title` est
+ * souvent null) et ses dates de validité dans dateDebut / dateFin.
+ */
+export type SearchExtract = {
+  id?: string;
+  num?: string | null;
+  title?: string | null;
+  legalStatus?: string | null;
+  dateDebut?: string | number | null;
+  dateFin?: string | number | null;
+  values?: string[];
+};
 
 export type SearchRow = {
   id?: string;
-  titles?: Array<{ title?: string; cid?: string }>;
-  sections?: Array<{
-    extracts?: Array<{ id?: string; values?: string[] }>;
-  }>;
+  titles?: Array<{ title?: string | null; cid?: string }>;
+  sections?: Array<{ extracts?: SearchExtract[] }>;
   texte?: string;
+};
+
+export type MappedArticle = {
+  id: string;
+  num: string | null;
+  etat: string | null;
+  dateDebut: string | number | null;
+  dateFin: string | number | null;
 };
 
 export type MappedHit = {
@@ -21,6 +43,8 @@ export type MappedHit = {
   textId: string | null;
   title: string;
   excerpt: string | null;
+  /** Tous les articles du résultat : un code renvoie plusieurs extraits. */
+  articles: MappedArticle[];
 };
 
 const TEXT_ID =
@@ -90,13 +114,19 @@ export function searchTypeForQuery(
  * sur le mauvais identifiant.
  */
 export function mapSearchRow(row: SearchRow): MappedHit {
-  const articleIds: string[] = [];
+  const articles: MappedArticle[] = [];
   const bits: string[] = [];
 
   for (const section of row.sections ?? []) {
     for (const extract of section.extracts ?? []) {
       if (extract.id && /^LEGIARTI/i.test(extract.id)) {
-        articleIds.push(extract.id);
+        articles.push({
+          id: extract.id,
+          num: extract.num?.trim() || null,
+          etat: extract.legalStatus?.trim() || null,
+          dateDebut: extract.dateDebut ?? null,
+          dateFin: extract.dateFin ?? null,
+        });
       }
       const value = extract.values?.find((v) => v && v.trim());
       if (value) bits.push(value);
@@ -109,13 +139,13 @@ export function mapSearchRow(row: SearchRow): MappedHit {
     null;
   const rowArticle =
     row.id && /^LEGIARTI/i.test(row.id) ? row.id : null;
-  const articleId = rowArticle ?? articleIds[0] ?? null;
+  const articleId = rowArticle ?? articles[0]?.id ?? null;
   const id = articleId ?? textId ?? row.id ?? "";
   const title = row.titles?.[0]?.title?.trim() || id || "Résultat sans titre";
   const excerpt =
     bits.join(" ").replace(/\s+/g, " ").trim().slice(0, EXCERPT_MAX) || null;
 
-  return { id, articleId, textId, title, excerpt };
+  return { id, articleId, textId, title, excerpt, articles };
 }
 
 function mentionsNum(blob: string, wanted: string): boolean {
@@ -124,15 +154,91 @@ function mentionsNum(blob: string, wanted: string): boolean {
   return new RegExp(`\\b${escaped}\\b`, "i").test(canon);
 }
 
+function normalizeTitle(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Vrai seulement si le titre est clairement celui d'un AUTRE code. */
+export function isOtherCode(title: string, codeName: string | null): boolean {
+  if (!codeName) return false;
+  const got = normalizeTitle(title);
+  const asked = normalizeTitle(codeName);
+  if (!got.startsWith("code ")) return false;
+  return !got.startsWith(asked) && !asked.startsWith(got);
+}
+
+type PickableHit = {
+  articleId: string | null;
+  title: string;
+  excerpt?: string | null;
+  articles?: MappedArticle[];
+};
+
+/** Numéros d'articles renvoyés par l'API, pour un message d'erreur lisible. */
+export function listedArticleNums(hits: PickableHit[]): string[] {
+  return hits.flatMap((hit) =>
+    (hit.articles ?? []).flatMap((article) => (article.num ? [article.num] : []))
+  );
+}
+
+/**
+ * Quand l'API donne le numéro de chaque article (`num`), on ne se fie qu'à
+ * lui : l'article demandé ne contient pas son propre numéro dans son texte,
+ * alors qu'un article qui le CITE le contient. Retourne `undefined` si l'API
+ * n'a fourni aucun numéro (on retombe alors sur l'ancien critère).
+ */
+function pickByArticleNum(
+  hits: PickableHit[],
+  wanted: string,
+  query: string,
+  asOfMs: number | undefined
+): string | null | undefined {
+  const codeName = codeNameFromQuery(query);
+  const numbered = hits.flatMap((hit) =>
+    (hit.articles ?? [])
+      .filter((article) => article.num)
+      .map((article) => ({ article, title: hit.title }))
+  );
+  if (numbered.length === 0) return undefined;
+
+  const ranked = numbered
+    .filter(
+      ({ article, title }) =>
+        articleNumsEqual(article.num, wanted) && !isOtherCode(title, codeName)
+    )
+    .map(({ article }) => {
+      const dated = article.dateDebut != null && article.dateDebut !== "";
+      const covers =
+        asOfMs != null && dated
+          ? versionCovers(article.dateDebut, article.dateFin, asOfMs)
+          : null;
+      const inForce = article.etat?.toUpperCase().startsWith("VIGUEUR") ?? false;
+      return {
+        id: article.id,
+        // Version couvrant la date d'abord ; à défaut de date, celle en vigueur.
+        score: (covers === true ? 4 : covers === null ? 2 : 0) + (inForce ? 1 : 0),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return ranked[0]?.id ?? null;
+}
+
 export function pickBestArticleId(
-  hits: Array<{
-    articleId: string | null;
-    title: string;
-    excerpt?: string | null;
-  }>,
-  query: string
+  hits: PickableHit[],
+  query: string,
+  opts: { asOfMs?: number } = {}
 ): string | null {
   const wanted = wantedArticleNum(query);
+  if (wanted) {
+    const byNum = pickByArticleNum(hits, wanted, query, opts.asOfMs);
+    if (byNum !== undefined) return byNum;
+  }
   const ranked = hits
     .filter((hit) => hit.articleId)
     .map((hit) => {

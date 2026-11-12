@@ -113,6 +113,15 @@ export async function runAgentStream(
     toolCount: Object.keys(tools).length,
   });
   const streamError = createStreamErrorCapture(def);
+  // Dernier pas (ou garde de contexte) : conclusion textuelle obligatoire.
+  const prepareBase = buildPrepareStep({ maxSteps, guard });
+
+  const toolNames = Object.keys(tools);
+  const forceToolsOnFirstStep =
+    toolNames.length > 0 &&
+    (def.role === "citator" ||
+      def.role === "research" ||
+      def.role === "legifrance");
 
   const stream = streamText({
     model,
@@ -120,7 +129,19 @@ export async function runAgentStream(
     messages: cached.messages,
     tools,
     stopWhen: stepCountIs(maxSteps),
-    prepareStep: buildPrepareStep({ maxSteps, guard }),
+    prepareStep: (step) => {
+      const prepared = prepareBase(step);
+      // Premier pas Recherche/Citateur : forcer un vrai tool-call natif
+      // (évite le XML `<tool_call>` collé en prose par certains modèles).
+      if (
+        forceToolsOnFirstStep &&
+        step.stepNumber === 0 &&
+        prepared.toolChoice === undefined
+      ) {
+        return { ...prepared, toolChoice: "required" as const };
+      }
+      return prepared;
+    },
     onError: streamError.onError,
     temperature: def.temperature ?? undefined,
     abortSignal: ctx.abortSignal,

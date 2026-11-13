@@ -73,6 +73,30 @@ describe("buildCitationGate", () => {
     expect(gate.validatedIds.has("LEGIARTI000036829836")).toBe(true);
     expect(gate.validatedNums.has("1171")).toBe(true);
   });
+
+  it("accepte une décision Judilibre avec version = date ISO", () => {
+    const gate = buildCitationGate([
+      {
+        role: "citator",
+        output:
+          "@@CITE status=VALIDATED id=ECLI:FR:CCASS:2011:CO00011 num=09-16.863 version=2011-01-18@@",
+      },
+    ]);
+    expect(gate.validatedIds.has("ECLI:FR:CCASS:2011:CO00011")).toBe(true);
+    expect(gate.validatedPourvois.has("09-16.863")).toBe(true);
+  });
+
+  it("récupère pourvoi + ECLI depuis le tableau du citateur", () => {
+    const gate = buildCitationGate([
+      {
+        role: "citator",
+        output:
+          "Chambre commerciale, 18 janvier 2011, 09-16.863\tVALIDATED ✅\tECLI:FR:CCASS:2011:CO00011\t-\t2011-01-18",
+      },
+    ]);
+    expect(gate.validatedIds.has("ECLI:FR:CCASS:2011:CO00011")).toBe(true);
+    expect(gate.validatedPourvois.has("09-16.863")).toBe(true);
+  });
 });
 
 describe("applyCitationGate", () => {
@@ -188,6 +212,19 @@ describe("applyCitationGate", () => {
       },
     ]);
     const text = "Cass. com., 3 avril 2024, ECLI:FR:CCASS:2024:CO00111.";
+    expect(applyCitationGate(text, ecliGate)).toBe(text);
+  });
+
+  it("garde ECLI et pourvoi d'une décision Judilibre VALIDATED (version date)", () => {
+    const ecliGate = buildCitationGate([
+      {
+        role: "citator",
+        output:
+          "@@CITE status=VALIDATED id=ECLI:FR:CCASS:2011:CO00011 num=09-16.863 version=2011-01-18@@",
+      },
+    ]);
+    const text =
+      "Cass. com., 18 janvier 2011, pourvoi n° 09-16.863, ECLI:FR:CCASS:2011:CO00011.";
     expect(applyCitationGate(text, ecliGate)).toBe(text);
   });
 

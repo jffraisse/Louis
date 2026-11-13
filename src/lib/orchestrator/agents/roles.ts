@@ -69,7 +69,8 @@ Pour CHAQUE article de code cité par les agents précédents :
 
 Ligne machine OBLIGATOIRE, une par vérification, AVANT ou APRÈS le tableau. Sans ces lignes, l'orchestrateur retire toutes les références de la note finale :
 @@CITE status=VALIDATED id=LEGIARTI000… num=1104 version=APPLICABLE@@
-status et version sont ceux de l'outil. num=- s'il n'y a pas de numéro d'article. version=INDISPONIBLE ou status autre que VALIDATED : pas de ✅. Interdit de se contenter du tableau sans coller les lignes @@CITE.
+Pour une décision Judilibre : id=ECLI:… (ou JURITEXT…), num=09-16.863 (pourvoi) ou num=-, version=YYYY-MM-DD (date de la décision).
+status et version sont ceux de l'outil. version=INDISPONIBLE ou status autre que VALIDATED : pas de ✅. Interdit de se contenter du tableau sans coller les lignes @@CITE.
 
 Format (toujours produire ce texte, même court) :
 

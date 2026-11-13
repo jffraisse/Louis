@@ -10,12 +10,21 @@ export type CitationGate = {
   active: boolean;
   validatedNums: Set<string>;
   validatedIds: Set<string>;
+  /** Pourvois validés via Judilibre (ex. 09-16.863). */
+  validatedPourvois: Set<string>;
 };
 
 export const REDACTED = "« référence retirée — non VALIDATED »";
 
-const CITE_MARKER =
-  /@@CITE\s+status=(VALIDATED|REJECTED|INTROUVABLE)\s+id=(\S+)\s+num=(\S+)\s+version=(EN_VIGUEUR|APPLICABLE|INDISPONIBLE)\s*@@/gi;
+/**
+ * version = EN_VIGUEUR | APPLICABLE | INDISPONIBLE pour un article,
+ * ou date ISO YYYY-MM-DD pour une décision Judilibre.
+ */
+const CITE_VERSION = String.raw`EN_VIGUEUR|APPLICABLE|INDISPONIBLE|\d{4}-\d{2}-\d{2}`;
+const CITE_MARKER = new RegExp(
+  String.raw`@@CITE\s+status=(VALIDATED|REJECTED|INTROUVABLE)\s+id=(\S+)\s+num=(\S+)\s+version=(${CITE_VERSION})\s*@@`,
+  "gi"
+);
 
 /** Tiret ASCII ou typographique (souvent collé par le modèle). */
 const H = "[-\\u2010-\\u2015]";
@@ -34,11 +43,18 @@ const BARE_LNUM = new RegExp(
  * couvert par ARTICLE_SEQ.
  */
 const BARE_ARTICLE = new RegExp(`\\b(\\d{4}(?:${H}\\d{1,3}){0,3})\\b`, "gi");
-/** Ligne machine absente : tableau du citateur avec statut outil + id + num. */
-const TABLE_VALIDATED =
-  /\bVALIDATED\b\s+(LEGIARTI\d+|JURITEXT\d+|CETATEXT\d+|ECLI:[^\s|]+)\s+(\S+)\s+(EN_VIGUEUR|APPLICABLE)\b/gi;
-/** Pourvoi du type 17-14.125, que l'allowlist d'articles ne couvre jamais. */
-const POURVOI = new RegExp(`(?:\\bn[°ºo]\\s*)?\\b\\d{2}${H}\\d{2}\\.\\d{3}\\b`, "gi");
+/** Ligne machine absente : tableau du citateur avec statut outil + id + num/version. */
+const TABLE_VALIDATED = new RegExp(
+  String.raw`\bVALIDATED\b\s+(LEGIARTI\d+|JURITEXT\d+|CETATEXT\d+|ECLI:[^\s|]+)\s+(\S+)\s+(${CITE_VERSION})\b`,
+  "gi"
+);
+/** Pourvoi voisin d'un ECLI VALIDATED dans le tableau du citateur. */
+const TABLE_POURVOI_ECLI = new RegExp(
+  String.raw`(\d{2}${H}\d{2}\.\d{3}).{0,160}?\bVALIDATED\b.{0,120}?(ECLI:FR:[A-Z0-9:.]+)`,
+  "gi"
+);
+/** Pourvoi du type 17-14.125. */
+const POURVOI = new RegExp(`(?:\\bn[°ºo]\\s*)?\\b(\\d{2}${H}\\d{2}\\.\\d{3})\\b`, "gi");
 const MONTHS =
   "janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre";
 const DATE = `\\d{1,2}(?:er)?\\s+(?:${MONTHS})\\s+\\d{4}`;
@@ -73,13 +89,30 @@ function rememberNum(set: Set<string>, raw: string): void {
   set.add(num);
 }
 
+function normalizePourvoi(raw: string): string | null {
+  const match = raw.match(new RegExp(`(\\d{2})${H}(\\d{2})\\.(\\d{3})`));
+  return match ? `${match[1]}-${match[2]}.${match[3]}` : null;
+}
+
+function rememberPourvoi(set: Set<string>, raw: string): void {
+  const pourvoi = normalizePourvoi(raw);
+  if (pourvoi) set.add(pourvoi);
+}
+
+function emptyGate(): CitationGate {
+  return {
+    active: false,
+    validatedNums: new Set(),
+    validatedIds: new Set(),
+    validatedPourvois: new Set(),
+  };
+}
+
 export function buildCitationGate(
   outputs: Array<{ role: string; output: string }>
 ): CitationGate {
   const citator = outputs.filter((output) => output.role === "citator");
-  if (citator.length === 0) {
-    return { active: false, validatedNums: new Set(), validatedIds: new Set() };
-  }
+  if (citator.length === 0) return emptyGate();
 
   // Sortie vide, fuite `<tool_call>` en prose, ou diagnostic « outil non exécuté » :
   // pas de vérification réelle — ne pas activer le filtre.
@@ -90,12 +123,11 @@ export function buildCitationGate(
     if (/appel d'outil non exécuté/i.test(text)) return false;
     return true;
   });
-  if (!usable) {
-    return { active: false, validatedNums: new Set(), validatedIds: new Set() };
-  }
+  if (!usable) return emptyGate();
 
   const validatedNums = new Set<string>();
   const validatedIds = new Set<string>();
+  const validatedPourvois = new Set<string>();
   for (const output of citator) {
     for (const marker of output.output.matchAll(new RegExp(CITE_MARKER.source, "gi"))) {
       const status = (marker[1] ?? "").toUpperCase();
@@ -103,22 +135,27 @@ export function buildCitationGate(
       if (status !== "VALIDATED" || version === "INDISPONIBLE") continue;
       const id = (marker[2] ?? "").toUpperCase();
       if (id && id !== "-") validatedIds.add(id);
-      rememberNum(validatedNums, marker[3] ?? "");
+      const num = marker[3] ?? "";
+      rememberNum(validatedNums, num);
+      rememberPourvoi(validatedPourvois, num);
     }
-    // Secours : le modèle a parfois rempli le tableau sans coller @@CITE.
-    // Sans ça, allowlist vide → la note Maestro est illisible.
-    if (validatedIds.size === 0) {
-      for (const row of output.output.matchAll(new RegExp(TABLE_VALIDATED.source, "gi"))) {
-        const id = (row[1] ?? "").toUpperCase();
-        const version = (row[3] ?? "").toUpperCase();
-        if (!id || version === "INDISPONIBLE") continue;
-        validatedIds.add(id);
-        rememberNum(validatedNums, row[2] ?? "");
-      }
+    // Secours : tableau VALIDATED sans @@CITE (articles ou décisions).
+    for (const row of output.output.matchAll(new RegExp(TABLE_VALIDATED.source, "gi"))) {
+      const id = (row[1] ?? "").toUpperCase();
+      const version = (row[3] ?? "").toUpperCase();
+      if (!id || version === "INDISPONIBLE") continue;
+      validatedIds.add(id);
+      rememberNum(validatedNums, row[2] ?? "");
+      rememberPourvoi(validatedPourvois, row[2] ?? "");
+    }
+    for (const row of output.output.matchAll(new RegExp(TABLE_POURVOI_ECLI.source, "gi"))) {
+      rememberPourvoi(validatedPourvois, row[1] ?? "");
+      const id = (row[2] ?? "").toUpperCase();
+      if (id) validatedIds.add(id);
     }
   }
 
-  return { active: true, validatedNums, validatedIds };
+  return { active: true, validatedNums, validatedIds, validatedPourvois };
 }
 
 function numAllowed(raw: string, gate: CitationGate): boolean {
@@ -224,7 +261,11 @@ function redactLine(line: string, gate: CitationGate): string {
     changed = true;
     return REDACTED;
   });
-  next = next.replace(POURVOI, () => {
+  next = next.replace(POURVOI, (full, num: string) => {
+    const pourvoi = normalizePourvoi(num ?? full);
+    if (pourvoi && gate.validatedPourvois.has(pourvoi)) return full;
+    // Même ligne qu'un ECLI / JURITEXT déjà validé : le pourvoi va avec.
+    if (lineHasValidatedId(next, gate, DECISION_ID)) return full;
     changed = true;
     return REDACTED;
   });

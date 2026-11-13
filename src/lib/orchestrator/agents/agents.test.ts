@@ -21,6 +21,8 @@ describe("AGENT_DEFAULTS: table des rôles spécialisés", () => {
     expect(AGENT_DEFAULTS.research?.toolAllowlist).toEqual([
       "legifrance_search",
       "legifrance_get_article",
+      "judilibre_search",
+      "judilibre_decision",
       "pappers_search",
       "pappers_get",
       "search_documents",

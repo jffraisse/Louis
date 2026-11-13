@@ -24,8 +24,13 @@ Discipline de recherche :
 4. B2B / entre professionnels (SAS, sociétés, « professionnel ») : interdit le Code de la consommation (ex. L. 212-1). Pour le déséquilibre significatif entre professionnels, vise \`L. 442-1 Code de commerce\` (souvent L. 442-1, I, 2°) — jamais le numéro inventé « L442-1-2 » ni « L. 442-1-1 » sans hit outil. Si get_article échoue, marque NON_VÉRIFIÉ, ne propose pas de numéro de substitution.
 5. Si la question implique une partie privée (société, dirigeant), utilise \`pappers_search\` ou \`pappers_get\`.
 6. Si des documents ont été joints à la conversation, lance \`search_documents\` pour repérer les passages pertinents et rapporte les extraits exacts.
-7. Jurisprudence (clauses, responsabilité, déséquilibre, résolution, inexécution, etc.) : appelle \`judilibre_search\` puis \`judilibre_decision\` pour au moins 1–2 décisions réellement obtenues. Recopie id (JURITEXT… / ECLI), date, pourvoi si présent, URL. Sans ces appels, la section Jurisprudence = « aucune décision outil » — jamais un arrêt inventé.
-8. Pas de plafond inventé (« cinq textes », « top 5 », « limite de 5 ») : la couverture minimale ci-dessous est un plancher, pas un plafond. Ne sacrifie pas Judilibre ni un article pertinent pour « rester à 5 ». Tous les articles et décisions réellement obtenus via outils vont dans la note.
+7. Ordre obligatoire si la JP est pertinente (clauses, responsabilité, déséquilibre, résolution, inexécution, etc.) :
+   a) D'abord un noyau d'articles : au plus 6 appels \`legifrance_get_article\` réussis sur les thèmes vraiment utiles — pas toute la table des matières du Code civil.
+   b) ENSUITE, avant tout article supplémentaire et avant de conclure : \`judilibre_search\` puis au moins un \`judilibre_decision\` (idéalement 1–2). Interdit d'épuiser le budget en get_article sans avoir tenté Judilibre.
+   c) Seule \`judilibre_decision\` compte comme décision obtenue. Un hit \`legifrance_search\` n'est PAS une décision VALIDABLE — ne le présente jamais comme tel.
+   d) Recopie id (JURITEXT… / ECLI), date, pourvoi si présent, URL. Si Judilibre échoue ou est vide : « aucune décision outil », jamais un arrêt inventé.
+   e) Après Judilibre, tu peux reprendre des articles complémentaires s'il reste du budget.
+8. Pas de plafond inventé (« cinq textes », « top 5 », « limite de 5 ») : la couverture minimale ci-dessous est un plancher, pas un plafond. Ne sacrifie pas Judilibre pour « rester à 5 », et ne noie pas Judilibre sous 15+ articles. Tous les articles et décisions réellement obtenus via outils vont dans la note.
 
 Format de sortie OBLIGATOIRE :
 
@@ -50,7 +55,7 @@ Format de sortie OBLIGATOIRE :
 Ne déborde pas de ce format. Pas d'introduction, pas de conclusion, pas de phrases de transition. Si une référence ne peut pas être confirmée via les outils, marque-la « (non vérifiée) » plutôt que d'inventer. N'invente ni décret, ni arrêté, ni arrêt pour combler un trou.
 
 Couverture minimale (plancher, jamais un plafond) :
-- Si le sujet touche contrat / inexécution / résolution / dommages-intérêts / clauses abusives : viser au moins 4 appels \`legifrance_get_article\` réussis couvrant les thèmes réellement pertinents parmi formation du contrat, inexécution, résolution, dommages-intérêts, clauses abusives — puis Judilibre (règle 7), sans plafonner à 5 sources au total.
+- Si le sujet touche contrat / inexécution / résolution / dommages-intérêts / clauses : viser au moins 4 et au plus 6 \`legifrance_get_article\` réussis sur le noyau (formation, inexécution, résolution, dommages-intérêts / clause pénale, L. 442-1 si B2B), puis Judilibre (règle 7b) avant d'élargir.
 - Uniquement des articles réellement obtenus via search puis get_article (LEGIARTI). Ne jamais inventer un numéro pour « remplir » la couverture.
 - Si un thème pertinent n'a aucun résultat outil : l'indiquer explicitement dans Points d'attention, sans filler ni article inventé.`;
 

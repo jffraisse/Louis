@@ -20,6 +20,13 @@ describe("chaîne Légifrance → @@CITE", () => {
     expect(RESEARCH_SYSTEM_PROMPT).toContain("judilibre_decision");
     expect(RESEARCH_SYSTEM_PROMPT).toContain("Pas de plafond inventé");
     expect(RESEARCH_SYSTEM_PROMPT).toContain("plancher, jamais un plafond");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("au plus 6 appels");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain(
+      "avant tout article supplémentaire"
+    );
+    expect(RESEARCH_SYSTEM_PROMPT).toContain(
+      "Seule `judilibre_decision` compte"
+    );
     expect(AGENT_DEFAULTS.research?.toolAllowlist).toContain("judilibre_search");
     expect(AGENT_DEFAULTS.research?.toolAllowlist).toContain(
       "judilibre_decision"

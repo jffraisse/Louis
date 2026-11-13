@@ -55,13 +55,14 @@ export const PIPELINE_PRESETS: PresetTemplate[] = [
     slug: "recherche-juridique",
     name: "Recherche juridique sourcée",
     description:
-      "Pipeline 3 agents — Recherche (Légifrance + RAG + Pappers) → Citateur (vérification verbatim) → Maestro (synthèse finale streamée). Pour les questions où la qualité des sources prime.",
+      "Pipeline 3 agents — Recherche (Légifrance + Judilibre + RAG + Pappers) → Citateur (vérification verbatim) → Maestro (synthèse finale streamée). Pour les questions où la qualité des sources prime.",
     agents: [
       {
         role: "research",
         label: "Recherche",
         toolAllowlist: [
           "legifrance_search", "legifrance_get_article",
+          "judilibre_search", "judilibre_decision",
           "pappers_search",
           "pappers_get",
           "search_documents",
@@ -90,6 +91,7 @@ export const PIPELINE_PRESETS: PresetTemplate[] = [
         label: "Recherche",
         toolAllowlist: [
           "legifrance_search", "legifrance_get_article",
+          "judilibre_search", "judilibre_decision",
           "pappers_search",
           "pappers_get",
           "search_documents",
@@ -228,6 +230,7 @@ export const PIPELINE_PRESETS: PresetTemplate[] = [
         label: "Recherche",
         toolAllowlist: [
           "legifrance_search", "legifrance_get_article",
+          "judilibre_search", "judilibre_decision",
           "pappers_search",
           "pappers_get",
           "search_documents",

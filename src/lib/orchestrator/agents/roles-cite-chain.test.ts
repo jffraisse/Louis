@@ -15,6 +15,17 @@ describe("chaîne Légifrance → @@CITE", () => {
     expect(RESEARCH_SYSTEM_PROMPT).toContain("Code de la consommation");
   });
 
+  it("la Recherche appelle Judilibre sans plafond inventé de cinq textes", () => {
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("judilibre_search");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("judilibre_decision");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("Pas de plafond inventé");
+    expect(RESEARCH_SYSTEM_PROMPT).toContain("plancher, jamais un plafond");
+    expect(AGENT_DEFAULTS.research?.toolAllowlist).toContain("judilibre_search");
+    expect(AGENT_DEFAULTS.research?.toolAllowlist).toContain(
+      "judilibre_decision"
+    );
+  });
+
   it("le citateur vérifie les citations de la Recherche et n'approuve pas à vide", () => {
     expect(CITATOR_SYSTEM_PROMPT).toContain("legifrance_verify_quote");
     expect(CITATOR_SYSTEM_PROMPT).toContain("@@CITE");

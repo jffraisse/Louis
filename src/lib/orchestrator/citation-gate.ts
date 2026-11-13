@@ -233,10 +233,23 @@ function lineHasValidatedId(
   return false;
 }
 
+function lineHasValidatedPourvoi(line: string, gate: CitationGate): boolean {
+  for (const match of line.matchAll(new RegExp(POURVOI.source, "gi"))) {
+    const pourvoi = normalizePourvoi(match[1] ?? match[0] ?? "");
+    if (pourvoi && gate.validatedPourvois.has(pourvoi)) return true;
+  }
+  return false;
+}
+
 function redactLine(line: string, gate: CitationGate): string {
   let changed = false;
   let next = line;
-  if (!lineHasValidatedId(line, gate, DECISION_ID)) {
+  // Ne pas redacter « Cass., date » si un pourvoi VALIDATED est sur la ligne
+  // (sinon : « référence retirée », pourvoi n° 09-11.841 — oxymore).
+  if (
+    !lineHasValidatedId(line, gate, DECISION_ID) &&
+    !lineHasValidatedPourvoi(line, gate)
+  ) {
     next = next.replace(DECISION, () => {
       changed = true;
       return REDACTED;

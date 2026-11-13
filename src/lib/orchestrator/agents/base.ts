@@ -15,6 +15,10 @@ import { buildPrepareStep, createStepContextGuard } from "../step-context";
 import { createStreamErrorCapture } from "../stream-error";
 import { applyCachedSystem } from "../provider-tuning";
 import { resolveAgentRag, omitDocumentaryRagTools } from "./rag-scope";
+import {
+  resolveResearchToolAllowlist,
+  researchJudilibreToolChoice,
+} from "./research-tools";
 import type {
   AgentContext,
   AgentDefinition,
@@ -60,11 +64,15 @@ export async function runAgentStream(
 
   // Le toolAllowlist côté définition utilisateur a la priorité sur le
   // default du rôle (un utilisateur peut élargir l'allowlist d'un agent
-  // dans /board).
-  const allowlist =
+  // dans /board). Pour Research : Judilibre forcé, verify_quote interdit
+  // même si le Board est obsolète.
+  let allowlist =
     def.toolAllowlist !== undefined && def.toolAllowlist !== null
       ? def.toolAllowlist
       : defaults.toolAllowlist;
+  if (def.role === "research") {
+    allowlist = resolveResearchToolAllowlist(allowlist);
+  }
 
   let tools: ToolSet = {};
   if (allowlist === null || (allowlist && allowlist.length > 0)) {
@@ -139,6 +147,20 @@ export async function runAgentStream(
         prepared.toolChoice === undefined
       ) {
         return { ...prepared, toolChoice: "required" as const };
+      }
+      // Research : après le noyau d'articles, forcer Judilibre (search puis
+      // decision) avant de brûler le reste du budget en legifrance_*.
+      if (
+        def.role === "research" &&
+        prepared.toolChoice === undefined
+      ) {
+        const judilibre = researchJudilibreToolChoice({
+          stepNumber: step.stepNumber,
+          maxSteps,
+          steps: step.steps,
+          availableTools: new Set(toolNames),
+        });
+        if (judilibre) return { ...prepared, toolChoice: judilibre };
       }
       return prepared;
     },

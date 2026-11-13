@@ -228,6 +228,19 @@ describe("applyCitationGate", () => {
     expect(applyCitationGate(text, ecliGate)).toBe(text);
   });
 
+  it("garde Cass. + date si le pourvoi VALIDATED est sur la même ligne sans ECLI", () => {
+    const ecliGate = buildCitationGate([
+      {
+        role: "citator",
+        output:
+          "@@CITE status=VALIDATED id=ECLI:FR:CCASS:2010:CO00732 num=09-11.841 version=2010-06-29@@",
+      },
+    ]);
+    const text =
+      "Cass. com., 29 juin 2010, pourvoi n° 09-11.841 — clause limitative.";
+    expect(applyCitationGate(text, ecliGate)).toBe(text);
+  });
+
   it("abaisse « Certain » sur une ligne où une référence a été retirée", () => {
     const out = applyCitationGate(
       "Code civil – art. 1109 (cause)\tCertain (articles de base du Code civil).",

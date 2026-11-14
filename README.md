@@ -27,13 +27,14 @@ du Droit. Conçue par l'**Association DataRing**
 4. [Le manifeste](#le-manifeste)
 5. [Architecture](#architecture)
 6. [Démarrage](#démarrage)
-7. [Configuration](#configuration)
-8. [État réel des fonctionnalités](#état-réel-des-fonctionnalités)
-9. [Stack technique](#stack-technique)
-10. [Roadmap](#roadmap)
-11. [Sécurité](#sécurité)
-12. [Contribuer](#contribuer)
-13. [Licence](#licence)
+7. [Exploitation prod (Docker)](#exploitation-prod-docker)
+8. [Configuration](#configuration)
+9. [État réel des fonctionnalités](#état-réel-des-fonctionnalités)
+10. [Stack technique](#stack-technique)
+11. [Roadmap](#roadmap)
+12. [Sécurité](#sécurité)
+13. [Contribuer](#contribuer)
+14. [Licence](#licence)
 
 ---
 
@@ -511,6 +512,52 @@ documents :
 ```bash
 ADMIN_PASSWORD="$(openssl rand -base64 16)" npm run demo
 ```
+
+---
+
+## Exploitation prod (Docker)
+
+Stack autonome décrite dans [`docker-compose.prod.yml`](./docker-compose.prod.yml)
+(détails : [`docs/installation/one-command.md`](./docs/installation/one-command.md)).
+Depuis le répertoire d’installation (ex. `~/Work/Louis`) :
+
+### Lancer / redémarrer
+
+```bash
+# Démarrer (ou recréer) toute la stack
+sudo docker compose -f docker-compose.prod.yml up -d
+
+# Après un pull / rebuild d’image applicative
+sudo docker compose -f docker-compose.prod.yml pull
+sudo docker compose -f docker-compose.prod.yml up -d
+
+# Redémarrer seulement l’app (ex. après déploiement de prompts / code)
+sudo docker compose -f docker-compose.prod.yml restart app
+
+# Arrêter
+sudo docker compose -f docker-compose.prod.yml down
+```
+
+L’UI écoute en général sur le port défini par `LOUIS_PORT` (défaut **3000** ;
+sur certaines machines de lab : `http://192.168.1.21:3001`).
+
+### Logs serveur
+
+```bash
+# Suivi live du conteneur app
+sudo docker compose -f docker-compose.prod.yml logs -f app
+
+# Orchestrateur multi-agents (Recherche / Citateur / Maestro)
+sudo docker compose -f docker-compose.prod.yml logs -f app \
+  | grep -E "agent-context|agent-stream"
+
+# Dernières lignes sans suivre
+sudo docker compose -f docker-compose.prod.yml logs --tail=200 app
+```
+
+Les événements `agent-context` exposent notamment `role`, `step`,
+`previousTools` (ex. `judilibre_search:ok`, `legifrance_get_article:ok`) —
+utiles pour diagnostiquer un débat Board.
 
 ---
 

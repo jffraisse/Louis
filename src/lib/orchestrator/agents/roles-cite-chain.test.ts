@@ -15,7 +15,7 @@ describe("chaîne Légifrance → @@CITE", () => {
     expect(RESEARCH_SYSTEM_PROMPT).toContain("Code de la consommation");
   });
 
-  it("la Recherche appelle Judilibre sans plafond inventé de cinq textes", () => {
+  it("la Recherche appelle Judilibre sans plafond inventé de volume", () => {
     expect(RESEARCH_SYSTEM_PROMPT).toContain("judilibre_search");
     expect(RESEARCH_SYSTEM_PROMPT).toContain("judilibre_decision");
     expect(RESEARCH_SYSTEM_PROMPT).toContain("Pas de plafond inventé");
@@ -27,6 +27,7 @@ describe("chaîne Légifrance → @@CITE", () => {
     expect(RESEARCH_SYSTEM_PROMPT).toContain(
       "Seule `judilibre_decision` compte"
     );
+    expect(RESEARCH_SYSTEM_PROMPT).not.toMatch(/cinq textes|maximum 5|top 5/i);
     expect(AGENT_DEFAULTS.research?.toolAllowlist).toContain("judilibre_search");
     expect(AGENT_DEFAULTS.research?.toolAllowlist).toContain(
       "judilibre_decision"
@@ -41,7 +42,7 @@ describe("chaîne Légifrance → @@CITE", () => {
       "Ne choisis pas toi-même une liste d'articles à valider"
     );
     expect(CITATOR_SYSTEM_PROMPT).toContain("sans plafond inventé");
-    expect(CITATOR_SYSTEM_PROMPT).toContain("maximum 5");
+    expect(CITATOR_SYSTEM_PROMPT).not.toMatch(/cinq textes|maximum 5|top 5/i);
     expect(AGENT_DEFAULTS.citator?.toolAllowlist).toContain(
       "legifrance_verify_quote"
     );
@@ -52,6 +53,12 @@ describe("chaîne Légifrance → @@CITE", () => {
     expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain("TOUTES les lignes");
     expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain(
       "tu cites quand même chaque @@CITE VALIDATED"
+    );
+    expect(ORCHESTRATOR_SYSTEM_PROMPT).toContain(
+      "fail-closed ≠ quota de sources"
+    );
+    expect(ORCHESTRATOR_SYSTEM_PROMPT).not.toMatch(
+      /cinq textes|maximum 5|top 5/i
     );
   });
 });

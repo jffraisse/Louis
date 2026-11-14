@@ -559,6 +559,56 @@ Les événements `agent-context` exposent notamment `role`, `step`,
 `previousTools` (ex. `judilibre_search:ok`, `legifrance_get_article:ok`) —
 utiles pour diagnostiquer un débat Board.
 
+### Déployer le fork (machine IA)
+
+Un simple `restart app` **ne charge pas** un nouveau commit : Compose
+relance la même image. Pour déployer le code du fork
+([jffraisse/Louis](https://github.com/jffraisse/Louis) ou clone local) :
+
+**1. Sur la machine de travail** — pousser le commit :
+
+```bash
+cd /chemin/vers/louis_fork/Louis
+git push origin main
+```
+
+**2. Sur la machine IA** — une fois pour toutes, dans le `.env` à côté de
+`docker-compose.prod.yml` (souvent `~/louis/.env`) :
+
+```env
+LOUIS_IMAGE=louis
+LOUIS_VERSION=local
+```
+
+Ainsi Compose utilise `louis:local` / `louis-migrate:local` et un futur
+`docker compose pull` n’écrase plus l’image officielle GHCR par-dessus ton
+fork.
+
+**3. Sur la machine IA** — pull + rebuild + recreate :
+
+```bash
+# Clone git du fork (là où est le Dockerfile)
+cd /chemin/vers/clone/Louis    # ex. ~/Work/Louis ou ~/louis-fork
+git pull origin main
+
+sudo docker build -t louis:local .
+sudo docker build --target migrator -t louis-migrate:local .
+
+# Dossier d’installation Compose (là où est le .env)
+cd ~/louis
+sudo docker compose -f docker-compose.prod.yml up -d --force-recreate app
+sudo docker compose -f docker-compose.prod.yml images app
+```
+
+Vérifie que `app` tourne bien sur `louis:local`. **Pas de**
+`docker compose pull` juste après : ça retéléchargerait une image distante
+et pourrait écraser ton build local si tu n’as pas fixé
+`LOUIS_IMAGE` / `LOUIS_VERSION`.
+
+Variante sans toucher au `.env` : taguer le build comme le défaut Compose
+(`ghcr.io/association-dataring/louis:latest`) — pratique, mais fragile face
+à un `pull` ultérieur.
+
 ---
 
 ## Configuration

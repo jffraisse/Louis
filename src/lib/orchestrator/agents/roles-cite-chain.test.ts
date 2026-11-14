@@ -40,6 +40,8 @@ describe("chaîne Légifrance → @@CITE", () => {
     expect(CITATOR_SYSTEM_PROMPT).toContain(
       "Ne choisis pas toi-même une liste d'articles à valider"
     );
+    expect(CITATOR_SYSTEM_PROMPT).toContain("sans plafond inventé");
+    expect(CITATOR_SYSTEM_PROMPT).toContain("maximum 5");
     expect(AGENT_DEFAULTS.citator?.toolAllowlist).toContain(
       "legifrance_verify_quote"
     );
